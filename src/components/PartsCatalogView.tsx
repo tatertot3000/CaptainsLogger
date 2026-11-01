@@ -1319,165 +1319,166 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                   : 'border-slate-800'
               }`}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1 flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span
-                      className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded flex items-center gap-1 ${
-                        isConsumable
-                          ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
-                          : 'bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      {isConsumable ? (
-                        <>
-                          <FlaskConical className="w-3 h-3 text-teal-400" />
-                          Consumable ({sortedContainers.length}{' '}
-                          {sortedContainers.length === 1 ? 'container' : 'containers'})
-                        </>
-                      ) : (
-                        <>
-                          <Package className="w-3 h-3 text-sky-400" />
-                          Spare Part
-                        </>
-                      )}
-                    </span>
-                    <span className="text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                      {part.category}
-                    </span>
+              {/* Top Row: Full-width Title & Badges so long names don't wrap prematurely */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded flex items-center gap-1 ${
+                      isConsumable
+                        ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
+                        : 'bg-slate-800 text-slate-300'
+                    }`}
+                  >
+                    {isConsumable ? (
+                      <>
+                        <FlaskConical className="w-3 h-3 text-teal-400" />
+                        Consumable ({sortedContainers.length}{' '}
+                        {sortedContainers.length === 1 ? 'container' : 'containers'})
+                      </>
+                    ) : (
+                      <>
+                        <Package className="w-3 h-3 text-sky-400" />
+                        Spare Part
+                      </>
+                    )}
+                  </span>
+                  <span className="text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                    {part.category}
+                  </span>
 
-                    {/* For discrete parts, show Date Purchased tag in header (consumables show per-container dates below) */}
-                    {!isConsumable &&
-                      (editingDatePartId === part.id ? (
-                        <input
-                          type="date"
-                          autoFocus
-                          defaultValue={
-                            part.datePurchased || new Date().toISOString().slice(0, 10)
+                  {/* For discrete parts, show Date Purchased tag in header (consumables show per-container dates below) */}
+                  {!isConsumable &&
+                    (editingDatePartId === part.id ? (
+                      <input
+                        type="date"
+                        autoFocus
+                        defaultValue={
+                          part.datePurchased || new Date().toISOString().slice(0, 10)
+                        }
+                        onBlur={(e) => handleUpdatePurchaseDate(part.id, e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleUpdatePurchaseDate(
+                              part.id,
+                              (e.target as HTMLInputElement).value
+                            );
                           }
-                          onBlur={(e) => handleUpdatePurchaseDate(part.id, e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              handleUpdatePurchaseDate(
-                                part.id,
-                                (e.target as HTMLInputElement).value
-                              );
-                            }
-                          }}
-                          className="bg-slate-950 border border-amber-500 rounded px-2 py-0.5 text-[11px] font-mono text-amber-200"
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => setEditingDatePartId(part.id)}
-                          title="Date Purchased tag (Tap to update purchase date)"
-                          className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:border-amber-400 flex items-center gap-1 transition"
-                        >
-                          <Calendar className="w-3 h-3 text-amber-400" />
-                          <span>Purchased: {part.datePurchased || 'Set Date'}</span>
-                        </button>
-                      ))}
-
-                    <span className="text-xs text-sky-400 font-medium">
-                      {part.equipmentModel}
-                    </span>
-
-                    {part.photos && part.photos.length > 0 && (
+                        }}
+                        className="bg-slate-950 border border-amber-500 rounded px-2 py-0.5 text-[11px] font-mono text-amber-200"
+                      />
+                    ) : (
                       <button
                         type="button"
-                        onClick={() => setLightboxPhoto(part.photos![0])}
-                        className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition cursor-pointer"
-                        title="Click to view part photo"
+                        onClick={() => setEditingDatePartId(part.id)}
+                        title="Date Purchased tag (Tap to update purchase date)"
+                        className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:border-amber-400 flex items-center gap-1 transition"
                       >
-                        <Camera className="w-3 h-3 text-emerald-400" />
-                        <span>
-                          {part.photos.length} {part.photos.length === 1 ? 'Photo' : 'Photos'}
-                        </span>
+                        <Calendar className="w-3 h-3 text-amber-400" />
+                        <span>Purchased: {part.datePurchased || 'Set Date'}</span>
                       </button>
-                    )}
-                  </div>
+                    ))}
 
+                  <span className="text-xs text-sky-400 font-medium">
+                    {part.equipmentModel}
+                  </span>
+
+                  {part.photos && part.photos.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setLightboxPhoto(part.photos![0])}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition cursor-pointer"
+                      title="Click to view part photo"
+                    >
+                      <Camera className="w-3 h-3 text-emerald-400" />
+                      <span>
+                        {part.photos.length} {part.photos.length === 1 ? 'Photo' : 'Photos'}
+                      </span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-start justify-between gap-3 pt-0.5">
                   <button
                     type="button"
                     onClick={() => togglePartExpanded(part.id)}
-                    className="text-left group cursor-pointer block w-full pt-0.5"
+                    className="text-left group cursor-pointer block flex-1 min-w-0"
                     title={isPartExpanded ? 'Click to collapse item details' : 'Click to expand item details'}
                   >
-                    <h3 className="text-base font-bold text-white group-hover:text-sky-300 transition leading-snug flex items-center gap-1.5">
+                    <h3 className="text-base font-bold text-white group-hover:text-sky-300 transition leading-snug flex items-start gap-1.5">
                       {isPartExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-sky-400 shrink-0" />
+                        <ChevronDown className="w-4 h-4 text-sky-400 shrink-0 mt-1" />
                       ) : (
-                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0" />
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0 mt-1" />
                       )}
-                      <span>{part.name}</span>
+                      <span className="break-words">{part.name}</span>
                     </h3>
                   </button>
 
-                  {isPartExpanded && part.dosageHint && (
-                    <div className="text-xs text-teal-300/90 font-medium flex items-center gap-1.5 pt-0.5 pl-5">
-                      <span className="text-teal-400 font-bold">Usage / Dosage:</span>
-                      <span>{part.dosageHint}</span>
+                  {/* Summary / Counter Controls */}
+                  {isConsumable ? (
+                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5 shrink-0">
+                      <div className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-right">
+                        <div
+                          className={`text-sm font-extrabold font-mono ${
+                            isLow ? 'text-rose-400' : 'text-emerald-400'
+                          }`}
+                        >
+                          {totals.totalRemaining}{' '}
+                          <span className="text-[10px] font-normal">{unitLabel} total</span>
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          min {part.minQuantity} {unitLabel} • cap {totals.totalCapacity} {unitLabel}
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => openAddContainerForm(part)}
+                        className="text-[11px] text-teal-300 hover:text-white font-semibold bg-teal-600/20 hover:bg-teal-600/40 border border-teal-500/40 px-2.5 py-1 rounded-lg flex items-center gap-1 transition shrink-0"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Add Bottle
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => adjustQuantity(part.id, -stepDelta)}
+                        className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition"
+                        title={`Deduct ${stepDelta} ${unitLabel}`}
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+
+                      <div className="text-center min-w-[50px]">
+                        <div
+                          className={`text-sm font-extrabold font-mono ${
+                            isLow ? 'text-rose-400' : 'text-emerald-400'
+                          }`}
+                        >
+                          {part.quantityOnBoard}{' '}
+                          <span className="text-[10px] font-normal">{unitLabel}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          min {part.minQuantity} {unitLabel}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => adjustQuantity(part.id, stepDelta)}
+                        className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition"
+                        title={`Add ${stepDelta} ${unitLabel}`}
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   )}
                 </div>
 
-                {/* Right-side Summary: Combined Total for Consumables OR Counter for Discrete Parts */}
-                {isConsumable ? (
-                  <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    <div className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-right">
-                      <div
-                        className={`text-sm font-extrabold font-mono ${
-                          isLow ? 'text-rose-400' : 'text-emerald-400'
-                        }`}
-                      >
-                        {totals.totalRemaining}{' '}
-                        <span className="text-[10px] font-normal">{unitLabel} total</span>
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        min {part.minQuantity} {unitLabel} • cap {totals.totalCapacity} {unitLabel}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => openAddContainerForm(part)}
-                      className="text-[11px] text-teal-300 hover:text-white font-semibold bg-teal-600/20 hover:bg-teal-600/40 border border-teal-500/40 px-2.5 py-1 rounded-lg flex items-center gap-1 transition"
-                    >
-                      <Plus className="w-3 h-3" />
-                      Add Bottle / Container
-                    </button>
-                  </div>
-                ) : (
-                  <div className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => adjustQuantity(part.id, -stepDelta)}
-                      className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition"
-                      title={`Deduct ${stepDelta} ${unitLabel}`}
-                    >
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-
-                    <div className="text-center min-w-[50px]">
-                      <div
-                        className={`text-sm font-extrabold font-mono ${
-                          isLow ? 'text-rose-400' : 'text-emerald-400'
-                        }`}
-                      >
-                        {part.quantityOnBoard}{' '}
-                        <span className="text-[10px] font-normal">{unitLabel}</span>
-                      </div>
-                      <div className="text-[10px] text-slate-500">
-                        min {part.minQuantity} {unitLabel}
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => adjustQuantity(part.id, stepDelta)}
-                      className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition"
-                      title={`Add ${stepDelta} ${unitLabel}`}
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
+                {isPartExpanded && part.dosageHint && (
+                  <div className="text-xs text-teal-300/90 font-medium flex items-center gap-1.5 pt-0.5 pl-5">
+                    <span className="text-teal-400 font-bold">Usage / Dosage:</span>
+                    <span>{part.dosageHint}</span>
                   </div>
                 )}
               </div>
