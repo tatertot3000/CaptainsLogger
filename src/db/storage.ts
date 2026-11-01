@@ -1,3 +1,6 @@
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { CaptainsDatabase, PartItem, MaintenanceSchedule } from '../types';
 import { IS_DEMO_MODE } from '../utils/demoMode';
 
@@ -870,52 +873,44 @@ export async function exportFileOrShare(
   mimeType: string,
   title: string
 ): Promise<void> {
-  // 1. Native Android APK (Capacitor) Bridge: write file to native cache & invoke Android Share Sheet
-  if (typeof window !== 'undefined') {
-    const cap = (
-      window as unknown as {
-        Capacitor?: {
-          isNativePlatform?: () => boolean;
-          Plugins?: {
-            Filesystem?: {
-              writeFile: (opts: {
-                path: string;
-                data: string;
-                directory: string;
-                encoding: string;
-              }) => Promise<{ uri: string }>;
-            };
-            Share?: {
-              share: (opts: {
-                title?: string;
-                url?: string;
-                dialogTitle?: string;
-              }) => Promise<void>;
-            };
-          };
-        };
-      }
-    ).Capacitor;
+  // 1. Native Android / iOS APK (Capacitor) Bridge: write file to native storage & invoke OS Share Sheet
+  if (Capacitor.isNativePlatform()) {
+    let savedToDocuments = false;
+    try {
+      await Filesystem.writeFile({
+        path: filename,
+        data: content,
+        directory: Directory.Documents,
+        encoding: Encoding.UTF8,
+      });
+      savedToDocuments = true;
+    } catch {
+      // Ignore if Documents directory permission is restricted on older Android versions
+    }
 
-    if (cap?.isNativePlatform?.() && cap.Plugins?.Filesystem && cap.Plugins?.Share) {
-      try {
-        const written = await cap.Plugins.Filesystem.writeFile({
-          path: filename,
-          data: content,
-          directory: 'CACHE',
-          encoding: 'utf8',
-        });
-        await cap.Plugins.Share.share({
-          title,
-          url: written.uri,
-          dialogTitle: title,
-        });
+    try {
+      const written = await Filesystem.writeFile({
+        path: filename,
+        data: content,
+        directory: Directory.Cache,
+        encoding: Encoding.UTF8,
+      });
+      await Share.share({
+        title,
+        files: [written.uri],
+        dialogTitle: title,
+      });
+      return;
+    } catch (err) {
+      const msg = String((err as Error)?.message || err);
+      if (msg.toLowerCase().includes('cancel') || msg.toLowerCase().includes('dismiss')) {
         return;
-      } catch (err) {
-        const msg = String((err as Error)?.message || err).toLowerCase();
-        if (msg.includes('cancel') || msg.includes('dismiss')) return;
-        console.warn('Capacitor native share failed, trying web fallback:', err);
       }
+      if (savedToDocuments) {
+        alert(`Backup saved to your phone's Documents folder:\nDocuments/${filename}`);
+        return;
+      }
+      alert(`Native export error: ${msg}`);
     }
   }
 

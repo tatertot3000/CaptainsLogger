@@ -38,13 +38,14 @@ jobs:
 
       - name: Wrap with Capacitor & Generate Android Project
         run: |
-          npm install --no-save @capacitor/core @capacitor/cli @capacitor/android @capacitor/filesystem @capacitor/share
+          npm install --no-save @capacitor/cli@^6.0.0 @capacitor/android@^6.0.0
           npx cap init "Captains Logger" com.captainslogger.app --web-dir dist
           npx cap add android
           if [ -d "resources/android" ]; then
             cp -r resources/android/* android/app/src/main/res/
           fi
           npx cap sync android
+          cat android/app/src/main/assets/capacitor.plugins.json
 
       - name: Configure Persistent Signing Key & Auto-Increment VersionCode
         env:
