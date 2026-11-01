@@ -1,0 +1,133 @@
+{
+  "version": 3,
+  "exportedAt": "2026-10-31T00:00:00.000Z",
+  "vessel": {
+    "name": "S/V Windward Spirit",
+    "boatMakeModel": "Cruising Sloop 34",
+    "year": 2006,
+    "engineMakeModel": "30 HP Inboard Diesel",
+    "engineSerial": "SAMPLE-12345",
+    "currentEngineHours": 1250.0,
+    "fuelCapacityGallons": 25,
+    "defaultBurnRateGph": 0.65,
+    "fuelType": "diesel",
+    "insignia": "compass",
+    "lastUpdated": "2026-10-31"
+  },
+  "parts": [
+    {
+      "id": "part-sample-oil",
+      "name": "15W-40 Heavy Duty Marine Diesel Oil",
+      "itemType": "consumable",
+      "unit": "liters",
+      "containerSize": 4,
+      "containers": [
+        {
+          "id": "cont-oil-1",
+          "datePurchased": "2026-05-15",
+          "containerSize": 4,
+          "quantityRemaining": 4.0,
+          "pricePaid": 26.99
+        }
+      ],
+      "dosageHint": "2.8 liters per oil change",
+      "category": "Engine - Lubrication",
+      "equipmentModel": "Marine Inboard Diesel",
+      "oemPartNumber": "15W40-OIL-4L",
+      "crossRefNumbers": ["Chevron Delo 400", "Shell Rotella T4"],
+      "quantityOnBoard": 4.0,
+      "minQuantity": 2,
+      "datePurchased": "2026-05-15",
+      "lastPricePaid": 26.99,
+      "locationOnBoat": "Engine Spares Bin",
+      "notes": "Main engine sump capacity approx 2.8L."
+    },
+    {
+      "id": "part-sample-oil-filter",
+      "name": "Spin-On Oil Filter",
+      "itemType": "part",
+      "unit": "each",
+      "category": "Engine - Lubrication",
+      "equipmentModel": "Marine Inboard Diesel",
+      "oemPartNumber": "OF-119305",
+      "crossRefNumbers": ["Sierra 18-7916", "Fram PH6607", "Wix 51358"],
+      "quantityOnBoard": 2,
+      "minQuantity": 1,
+      "datePurchased": "2026-05-15",
+      "lastPricePaid": 14.50,
+      "locationOnBoat": "Engine Spares Bin",
+      "notes": "Lube gasket before installing."
+    }
+  ],
+  "schedules": [
+    {
+      "id": "sched-sample-oil-change",
+      "title": "Engine Oil & Filter Change",
+      "category": "Engine - Lubrication",
+      "intervalHours": 100,
+      "intervalDays": 365,
+      "lastCompletedHours": 1200.0,
+      "lastCompletedDate": "2026-05-15",
+      "linkedParts": [
+        {
+          "partId": "part-sample-oil-filter",
+          "quantityNeeded": 1
+        },
+        {
+          "partId": "part-sample-oil",
+          "quantityNeeded": 2.8
+        }
+      ],
+      "wrenchOrSpecNotes": "Filter wrench • 2.8L 15W-40 oil",
+      "procedureNotes": "Warm engine, pump out old oil, replace filter, refill, check level and test for leaks."
+    }
+  ],
+  "serviceLogs": [
+    {
+      "id": "log-sample-1",
+      "title": "Engine Oil & Filter Change",
+      "category": "Engine - Lubrication",
+      "date": "2026-05-15",
+      "engineHours": 1200.0,
+      "cost": 41.49,
+      "partsUsed": [
+        {
+          "partId": "part-sample-oil-filter",
+          "nameSnapshot": "Spin-On Oil Filter",
+          "unitSnapshot": "each",
+          "quantityNeeded": 1
+        },
+        {
+          "partId": "part-sample-oil",
+          "nameSnapshot": "15W-40 Heavy Duty Marine Diesel Oil",
+          "unitSnapshot": "liters",
+          "quantityNeeded": 2.8
+        }
+      ],
+      "scheduleId": "sched-sample-oil-change",
+      "notes": "Regular 100-hour service completed."
+    }
+  ],
+  "fuelLogs": [
+    {
+      "id": "fuel-sample-1",
+      "date": "2026-06-01",
+      "engineHours": 1225.0,
+      "gallonsAdded": 15.2,
+      "pricePerGallon": 4.85,
+      "totalCost": 73.72,
+      "isFullTank": true,
+      "notes": "Marina fuel dock top-off."
+    }
+  ],
+  "engineHoursLogs": [
+    {
+      "id": "hours-sample-1",
+      "date": "2026-06-01",
+      "engineHours": 1225.0,
+      "note": "Fuel dock check"
+    }
+  ],
+  "customCategories": []
+}
+

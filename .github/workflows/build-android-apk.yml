@@ -1,0 +1,143 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build & Publish CaptainsLogger.apk
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Java 21 (Required for Android Gradle)
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Install web dependencies
+        run: npm install
+
+      - name: Build production web bundle
+        run: npm run build
+
+      - name: Wrap with Capacitor & Generate Android Project
+        run: |
+          npm install --no-save @capacitor/core @capacitor/cli @capacitor/android @capacitor/filesystem @capacitor/share
+          npx cap init "Captains Logger" com.captainslogger.app --web-dir dist
+          npx cap add android
+          if [ -d "resources/android" ]; then
+            cp -r resources/android/* android/app/src/main/res/
+          fi
+          npx cap sync android
+
+      - name: Configure Persistent Signing Key & Auto-Increment VersionCode
+        env:
+          ANDROID_SIGNING_CERT: ${{ secrets.ANDROID_SIGNING_CERT }}
+          ANDROID_SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
+        run: |
+          mkdir -p ~/.android
+          rm -f ~/.android/debug.keystore /tmp/signing.keystore
+          if [ -n "$ANDROID_SIGNING_KEY" ] && [ -n "$ANDROID_SIGNING_CERT" ]; then
+            echo "Using persistent ANDROID_SIGNING_KEY & ANDROID_SIGNING_CERT from GitHub Secrets..."
+            echo "$ANDROID_SIGNING_CERT" > /tmp/cert.pem
+            echo "$ANDROID_SIGNING_KEY" > /tmp/key.pem
+            openssl pkcs12 -export \
+              -in /tmp/cert.pem \
+              -inkey /tmp/key.pem \
+              -out /tmp/debug.p12 \
+              -name androiddebugkey \
+              -passout pass:android
+            keytool -importkeystore \
+              -deststorepass android \
+              -destkeypass android \
+              -destkeystore /tmp/signing.keystore \
+              -srckeystore /tmp/debug.p12 \
+              -srcstoretype PKCS12 \
+              -srcstorepass android \
+              -alias androiddebugkey \
+              -noprompt
+            rm -f /tmp/cert.pem /tmp/key.pem /tmp/debug.p12
+          else
+            echo "WARNING: No custom signing secrets found! Generating fallback debug keystore..."
+            keytool -genkeypair \
+              -alias androiddebugkey \
+              -keypass android \
+              -keystore /tmp/signing.keystore \
+              -storepass android \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -validity 10000 \
+              -keyalg RSA \
+              -keysize 2048
+          fi
+          cp /tmp/signing.keystore ~/.android/debug.keystore
+          if [ -n "${ANDROID_USER_HOME:-}" ]; then
+            mkdir -p "$ANDROID_USER_HOME"
+            cp /tmp/signing.keystore "$ANDROID_USER_HOME/debug.keystore"
+          fi
+          VERSION_CODE=$(($(date +%s) / 10))
+          sed -i -E "s/versionCode[[:space:]]+[0-9]+/versionCode ${VERSION_CODE}/" android/app/build.gradle
+          sed -i -E "s/versionName[[:space:]]+\"[^\"]+\"/versionName \"1.0.${{ github.run_number }}\"/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle || true
+
+      - name: Compile & Explicitly Sign Android APK
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../CaptainsLogger.apk
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          "$APKSIGNER" sign \
+            --ks /tmp/signing.keystore \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            ../CaptainsLogger.apk
+          "$APKSIGNER" verify --print-certs ../CaptainsLogger.apk
+          rm -f /tmp/signing.keystore
+
+      - name: Upload APK as Workflow Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: CaptainsLogger-Android-APK
+          path: CaptainsLogger.apk
+          retention-days: 30
+
+      - name: Refresh latest-apk Release Tag (Prevent CDN Cache)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest-apk --cleanup-tag --yes || true
+
+      - name: Publish Direct Download APK to GitHub Releases (latest-apk)
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: latest-apk
+          target_commitish: ${{ github.sha }}
+          name: "Captain's Logger — Latest Android APK (v1.0.${{ github.run_number }})"
+          body: |
+            Automated Android `.apk` build `v1.0.${{ github.run_number }}` from commit `${{ github.sha }}`.
+            
+            ### How to Install or Update on Your Android Phone:
+            1. Open this release page on your Android phone (in Chrome or the GitHub mobile app).
+            2. Tap **`CaptainsLogger.apk`** under **Assets** below to download it.
+            3. Tap the downloaded file and select **Install / Update** (if prompted by Android Play Protect, tap **More details → Install anyway**).
+          files: CaptainsLogger.apk
+          prerelease: false
+          make_latest: true
+
