@@ -1319,8 +1319,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                   : 'border-slate-800'
               }`}
             >
-              {/* Top Row: Full-width Title & Badges so long names don't wrap prematurely */}
-              <div className="space-y-1.5">
+              {/* Top Row: Badges and Tags */}
+              <div className="space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span
                     className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded flex items-center gap-1 ${
@@ -1397,27 +1397,38 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                   )}
                 </div>
 
-                <div className="flex items-start justify-between gap-3 pt-0.5">
-                  <button
-                    type="button"
-                    onClick={() => togglePartExpanded(part.id)}
-                    className="text-left group cursor-pointer block flex-1 min-w-0"
-                    title={isPartExpanded ? 'Click to collapse item details' : 'Click to expand item details'}
-                  >
-                    <h3 className="text-base font-bold text-white group-hover:text-sky-300 transition leading-snug flex items-start gap-1.5">
-                      {isPartExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-sky-400 shrink-0 mt-1" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0 mt-1" />
-                      )}
-                      <span className="break-words">{part.name}</span>
-                    </h3>
-                  </button>
+                {/* Dedicated Full-Width Title Row: 100% width with NO widgets on the right */}
+                <button
+                  type="button"
+                  onClick={() => togglePartExpanded(part.id)}
+                  className="text-left group cursor-pointer block w-full pt-0.5"
+                  title={isPartExpanded ? 'Click to collapse item details' : 'Click to expand item details'}
+                >
+                  <h3 className="text-base sm:text-lg font-bold text-white group-hover:text-sky-300 transition leading-snug flex items-start gap-1.5 w-full">
+                    {isPartExpanded ? (
+                      <ChevronDown className="w-4 h-4 text-sky-400 shrink-0 mt-1" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0 mt-1" />
+                    )}
+                    <span className="w-full break-words">{part.name}</span>
+                  </h3>
+                </button>
+
+                {/* Sub-row: Summary Badge & Quantity Controls placed below the full-width title */}
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <div className="flex-1 min-w-0">
+                    {isPartExpanded && part.dosageHint && (
+                      <div className="text-xs text-teal-300/90 font-medium flex items-center gap-1.5 pl-5">
+                        <span className="text-teal-400 font-bold">Usage / Dosage:</span>
+                        <span>{part.dosageHint}</span>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Summary / Counter Controls */}
                   {isConsumable ? (
-                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5 shrink-0">
-                      <div className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-right">
+                    <div className="flex items-center gap-2 shrink-0">
+                      <div className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1 text-right">
                         <div
                           className={`text-sm font-extrabold font-mono ${
                             isLow ? 'text-rose-400' : 'text-emerald-400'
@@ -1434,7 +1445,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                       <button
                         type="button"
                         onClick={() => openAddContainerForm(part)}
-                        className="text-[11px] text-teal-300 hover:text-white font-semibold bg-teal-600/20 hover:bg-teal-600/40 border border-teal-500/40 px-2.5 py-1 rounded-lg flex items-center gap-1 transition shrink-0"
+                        className="text-[11px] text-teal-300 hover:text-white font-semibold bg-teal-600/20 hover:bg-teal-600/40 border border-teal-500/40 px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition shrink-0"
                       >
                         <Plus className="w-3 h-3" />
                         Add Bottle
@@ -1474,13 +1485,6 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                     </div>
                   )}
                 </div>
-
-                {isPartExpanded && part.dosageHint && (
-                  <div className="text-xs text-teal-300/90 font-medium flex items-center gap-1.5 pt-0.5 pl-5">
-                    <span className="text-teal-400 font-bold">Usage / Dosage:</span>
-                    <span>{part.dosageHint}</span>
-                  </div>
-                )}
               </div>
 
               {isPartExpanded && (
