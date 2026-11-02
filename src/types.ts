@@ -1,17 +1,19 @@
 export type SystemCategory =
-  | 'Engine - Fuel'
-  | 'Engine - Cooling'
-  | 'Engine - Lubrication'
-  | 'Engine - Electrical'
+  | 'Engine'
+  | 'Cooling'
+  | 'Fuel'
+  | 'Lubrication'
+  | 'Electrical'
   | 'Transmission'
   | 'Plumbing & Water'
   | 'Rigging / Deck'
   | 'Safety'
   // Legacy aliases for backward compatibility
-  | 'Engine'
+  | 'Engine - Fuel'
+  | 'Engine - Cooling'
+  | 'Engine - Lubrication'
+  | 'Engine - Electrical'
   | 'Fuel System'
-  | 'Cooling'
-  | 'Electrical'
   | 'Plumbing / Head'
   | (string & {});
 
@@ -63,6 +65,8 @@ export interface PartItem {
   locationOnBoat?: string;
   notes?: string;
   photos?: MaintenancePhoto[];
+  manualId?: string;
+  manualPage?: string;
 }
 
 export interface LinkedPartRequirement {
@@ -91,6 +95,22 @@ export interface MaintenanceSchedule {
   wrenchOrSpecNotes?: string; // e.g., "17mm drain plug, 2.8L 15W-40 oil"
   procedureNotes?: string;
   photos?: MaintenancePhoto[];
+  manualId?: string;
+  manualPage?: string;
+}
+
+export interface VesselManual {
+  id: string;
+  title: string;
+  category: SystemCategory;
+  equipmentModel: string;
+  fileName?: string;
+  fileSizeBytes?: number;
+  hasLocalPdf?: boolean;
+  externalUrl?: string;
+  pageHints?: string; // e.g., "Impeller p. 42 • Oil & Filter p. 28 • Torque Specs p. 88"
+  notes?: string;
+  addedAt: string; // YYYY-MM-DD
 }
 
 export type ServiceLogStatus = 'completed' | 'deferred' | 'cancelled';
@@ -193,4 +213,5 @@ export interface CaptainsDatabase {
   customCategories?: string[];
   engineHoursLogs?: EngineHoursEntry[];
   sailTrips?: SailTrip[];
+  manuals?: VesselManual[];
 }

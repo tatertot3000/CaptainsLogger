@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { CaptainsDatabase, PartItem, MaintenanceSchedule } from '../types';
+import { CaptainsDatabase, PartItem, MaintenanceSchedule, VesselManual } from '../types';
 import { IS_DEMO_MODE } from '../utils/demoMode';
 
 const STORAGE_KEY = 'captains_logger_snapshot_v1';
@@ -32,7 +32,7 @@ export const DEFAULT_CONSUMABLE_ITEMS: PartItem[] = [
       },
     ],
     dosageHint: '0.5 oz per 15 gal diesel (shock: 1 oz / 15 gal)',
-    category: 'Engine - Fuel',
+    category: 'Fuel',
     equipmentModel: 'Diesel Fuel Tank Treatment',
     oemPartNumber: 'BIOBOR-JF-16OZ',
     crossRefNumbers: ['Biobor JF 16oz', 'Star brite Bio Diesel Treat'],
@@ -59,7 +59,7 @@ export const DEFAULT_CONSUMABLE_ITEMS: PartItem[] = [
       },
     ],
     dosageHint: '1 oz per 16 gal diesel',
-    category: 'Engine - Fuel',
+    category: 'Fuel',
     equipmentModel: 'Diesel Fuel Tank Treatment',
     oemPartNumber: '093016',
     crossRefNumbers: ['Star brite 93016', 'Stanadyne Performance Formula'],
@@ -127,7 +127,7 @@ export const DEFAULT_CONSUMABLE_ITEMS: PartItem[] = [
       },
     ],
     dosageHint: '2.8 liters per oil & filter change',
-    category: 'Engine - Lubrication',
+    category: 'Lubrication',
     equipmentModel: 'Yanmar 3YM30',
     oemPartNumber: 'ROTELLA-T4-15W40',
     crossRefNumbers: ['Yanmar 15W-40 Marine Oil', 'Chevron Delo 400 15W-40'],
@@ -151,6 +151,31 @@ export const DEFAULT_WATER_TASK: MaintenanceSchedule = {
   procedureNotes:
     'Flush dock hose for 30 seconds before inserting into deck fill. Add 2 oz water freshener before topping off so inflow mixes treatment.',
 };
+
+export const DEFAULT_SAMPLE_MANUALS: VesselManual[] = [
+  {
+    id: 'manual-yanmar-3ym30',
+    title: 'Yanmar 3YM30 / 3YM20 Operation & Service Manual',
+    category: 'Engine',
+    equipmentModel: 'Yanmar 3YM30 (29 HP Diesel)',
+    fileName: 'Yanmar-3YM30-Service-Manual.pdf',
+    pageHints:
+      'Oil & Filter Change p. 28 • Fuel Filter Bleeding p. 34 • Raw Water Impeller p. 42 • V-Belt Tension p. 36 • Heat Exchanger p. 64 • Kanzaki KM2P-1 Gearbox p. 52',
+    notes:
+      'Engine Sump Capacity: 2.8 Liters (API CK-4 15W-40) • Gearbox: 0.30L SAE 30 • Valve Clearance (Cold): 0.20mm Intake / Exhaust.',
+    addedAt: '2026-04-10',
+  },
+  {
+    id: 'manual-racor-500fg',
+    title: 'Parker Racor 500FG / 500MA Turbine Series Filter Manual',
+    category: 'Fuel',
+    equipmentModel: 'Racor 500FG / 500MA',
+    fileName: 'Racor-500FG-Turbine-Manual.pdf',
+    pageHints: 'Element Replacement (2010TM-OR) p. 4 • T-Handle O-Ring & Bowl Drain p. 6 • Troubleshooting Air Leaks p. 9',
+    notes: 'Uses 2010TM-OR (10 micron) element. Hand-tighten T-handle only; do not over-torque.',
+    addedAt: '2026-04-10',
+  },
+];
 
 export const SAMPLE_DB_EPOCH = '1970-01-01T00:00:00.000Z';
 
@@ -190,7 +215,7 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         name: 'Engine Spin-On Oil Filter',
         itemType: 'part',
         unit: 'each',
-        category: 'Engine - Lubrication',
+        category: 'Lubrication',
         equipmentModel: 'Yanmar 3YM30',
         oemPartNumber: '119305-35170',
         crossRefNumbers: ['Sierra 18-7916', 'Fram PH6607', 'Wix 51358', 'Baldwin B1400'],
@@ -201,13 +226,15 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         preferredVendorUrl: 'https://www.defender.com/search.html?q=119305-35170',
         locationOnBoat: 'Port Settee Engine Spares Bin',
         notes: 'Apply thin film of clean 15W-40 oil to gasket before hand-tightening + 3/4 turn.',
+        manualId: 'manual-yanmar-3ym30',
+        manualPage: 'p. 28',
       },
       {
         id: 'part-secondary-fuel',
         name: 'Secondary Engine Fuel Filter Element',
         itemType: 'part',
         unit: 'each',
-        category: 'Engine - Fuel',
+        category: 'Fuel',
         equipmentModel: 'Yanmar 3YM30',
         oemPartNumber: '129470-55703',
         crossRefNumbers: ['Sierra 18-79960', 'Baldwin PF7930'],
@@ -217,13 +244,15 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         lastPricePaid: 22.95,
         locationOnBoat: 'Port Settee Engine Spares Bin',
         notes: 'Includes O-ring for filter cup. Bleed air screw on top of housing after install.',
+        manualId: 'manual-yanmar-3ym30',
+        manualPage: 'p. 34',
       },
       {
         id: 'part-racor-element',
         name: 'Primary Fuel/Water Separator Filter (10 Micron)',
         itemType: 'part',
         unit: 'each',
-        category: 'Engine - Fuel',
+        category: 'Fuel',
         equipmentModel: 'Racor 500FG / 500MA',
         oemPartNumber: '2010TM-OR',
         crossRefNumbers: ['Racor 2010TM', 'Sierra 18-7937', 'Baldwin PF598-10'],
@@ -233,13 +262,15 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         lastPricePaid: 14.5,
         locationOnBoat: 'Lazarette Fuel Locker',
         notes: '10-micron blue cap element with T-handle O-ring.',
+        manualId: 'manual-racor-500fg',
+        manualPage: 'p. 4',
       },
       {
         id: 'part-impeller',
         name: 'Raw Water Pump Impeller & O-Ring Kit',
         itemType: 'part',
         unit: 'kit',
-        category: 'Engine - Cooling',
+        category: 'Cooling',
         equipmentModel: 'Yanmar 3YM30 / Johnson Pump',
         oemPartNumber: '128990-42570',
         crossRefNumbers: ['Johnson 09-810B-1', 'Sierra 18-3089', 'Jabsco 653-0001'],
@@ -249,6 +280,8 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         lastPricePaid: 34.99,
         locationOnBoat: 'Nav Station Tool Drawer',
         notes: '6-blade neoprene impeller. Lubricate blades with glycerin or silicone grease.',
+        manualId: 'manual-yanmar-3ym30',
+        manualPage: 'p. 42',
         photos: [
           {
             id: 'photo-part-impeller-1',
@@ -263,7 +296,7 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         name: 'Alternator & Water Pump V-Belt',
         itemType: 'part',
         unit: 'each',
-        category: 'Engine - Electrical',
+        category: 'Electrical',
         equipmentModel: 'Yanmar 3YM30 (80A Alternator)',
         oemPartNumber: '128990-77350',
         crossRefNumbers: ['Gates 9375', 'Dayco 15375'],
@@ -295,7 +328,7 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
       {
         id: 'sched-oil-change',
         title: 'Engine Oil & Filter Change (15W-40)',
-        category: 'Engine - Lubrication',
+        category: 'Lubrication',
         intervalHours: 100,
         intervalDays: 365,
         lastCompletedHours: 1350,
@@ -307,12 +340,14 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         wrenchOrSpecNotes: '2.8 Liters Shell Rotella T4 15W-40 • Filter strap wrench',
         procedureNotes:
           'Warm engine for 10 mins, extract oil via dipstick tube, swap spin-on filter, run and inspect for leaks.',
+        manualId: 'manual-yanmar-3ym30',
+        manualPage: 'p. 28',
       },
       DEFAULT_WATER_TASK,
       {
         id: 'sched-fuel-filters',
         title: 'Primary (Racor) & Secondary Fuel Filters',
-        category: 'Engine - Fuel',
+        category: 'Fuel',
         intervalHours: 250,
         intervalDays: 365,
         lastCompletedHours: 1185,
@@ -324,11 +359,13 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         wrenchOrSpecNotes: '10mm bleed screw on secondary filter header',
         procedureNotes:
           'Close fuel tank shutoff valve, swap Racor 2010TM element, replace Yanmar secondary element, open valve & bleed air.',
+        manualId: 'manual-racor-500fg',
+        manualPage: 'p. 4',
       },
       {
         id: 'sched-impeller',
         title: 'Raw Water Pump Impeller Replacement',
-        category: 'Engine - Cooling',
+        category: 'Cooling',
         intervalHours: 250,
         intervalDays: 365,
         lastCompletedHours: 1210,
@@ -337,6 +374,8 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         wrenchOrSpecNotes: '8mm cover bolts • Close raw water thru-hull seacock FIRST!',
         procedureNotes:
           'Close raw water intake seacock. Remove 6 cover screws, extract old impeller, check that all 6 blades are intact.',
+        manualId: 'manual-yanmar-3ym30',
+        manualPage: 'p. 42',
         photos: [
           {
             id: 'photo-sched-impeller-1',
@@ -349,7 +388,7 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
       {
         id: 'sched-heat-exchanger',
         title: 'Heat Exchanger Tube Bundle Overhaul',
-        category: 'Engine - Cooling',
+        category: 'Cooling',
         intervalHours: 500,
         intervalDays: 730,
         lastCompletedHours: 1410,
@@ -421,7 +460,7 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         id: 'log-1',
         scheduleId: 'sched-oil-change',
         title: 'Engine Oil & Filter Change (15W-40)',
-        category: 'Engine',
+        category: 'Lubrication',
         date: '2026-04-12',
         engineHours: 1350.0,
         cost: 38.5,
@@ -446,7 +485,7 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         id: 'log-heat-exchanger',
         scheduleId: 'sched-heat-exchanger',
         title: 'Heat Exchanger Tube Bundle Overhaul',
-        category: 'Engine - Cooling',
+        category: 'Cooling',
         date: '2026-09-14',
         engineHours: 1410.0,
         cost: 42.0,
@@ -672,6 +711,7 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
         ],
       },
     ],
+    manuals: DEFAULT_SAMPLE_MANUALS,
   };
 }
 
@@ -682,14 +722,15 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
 
   const mapCategory = (cat: string): any => {
     switch (cat) {
-      case 'Engine':
-        return 'Engine - Lubrication';
+      case 'Engine - Fuel':
       case 'Fuel System':
-        return 'Engine - Fuel';
-      case 'Cooling':
-        return 'Engine - Cooling';
-      case 'Electrical':
-        return 'Engine - Electrical';
+        return 'Fuel';
+      case 'Engine - Cooling':
+        return 'Cooling';
+      case 'Engine - Lubrication':
+        return 'Lubrication';
+      case 'Engine - Electrical':
+        return 'Electrical';
       case 'Plumbing / Head':
         return 'Plumbing & Water';
       default:
@@ -789,8 +830,12 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
   }
 
   const sailTrips = db.sailTrips || [];
+  const manuals = Array.isArray(db.manuals) ? db.manuals : DEFAULT_SAMPLE_MANUALS;
+  if (!db.manuals) {
+    changed = true;
+  }
 
-  if (!changed && db.version >= 4 && db.sailTrips) return db;
+  if (!changed && db.version >= 4 && db.sailTrips && db.manuals) return db;
 
   return {
     ...db,
@@ -800,6 +845,7 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
     customCategories,
     engineHoursLogs,
     sailTrips,
+    manuals,
   };
 }
 

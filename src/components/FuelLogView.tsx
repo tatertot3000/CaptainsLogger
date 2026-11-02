@@ -70,11 +70,11 @@ export const FuelLogView: React.FC<FuelLogViewProps> = ({
 
   const stats = calculateFuelStats(db.fuelLogs, db.vessel);
 
-  // Only items that are both consumable and Engine - Fuel should show up during fuel entry
+  // Only items that are both consumable and Fuel should show up during fuel entry
   const isEngineFuel = (cat?: string) => {
     if (!cat) return false;
     const normalized = cat.trim().toLowerCase().replace(/[\s-_]/g, '');
-    return normalized === 'enginefuel' || normalized === 'fuelsystem' || normalized === 'fuel';
+    return normalized === 'fuel' || normalized === 'enginefuel' || normalized === 'fuelsystem';
   };
   const fuelConsumables = db.parts.filter(
     (p) => p.itemType === 'consumable' && isEngineFuel(p.category)
@@ -161,7 +161,7 @@ export const FuelLogView: React.FC<FuelLogViewProps> = ({
         },
       ],
       dosageHint: newAddDosageHint.trim() || undefined,
-      category: 'Engine - Fuel',
+      category: 'Fuel',
       equipmentModel: db.vessel.fuelType === 'gasoline' ? 'Gasoline Fuel Tank Treatment' : 'Diesel Fuel Tank Treatment',
       oemPartNumber: newAddPartNum.trim() || newAddName.trim().toUpperCase().replace(/\s+/g, '-'),
       crossRefNumbers: [],
@@ -784,7 +784,7 @@ export const FuelLogView: React.FC<FuelLogViewProps> = ({
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                   {fuelConsumables.length === 0 ? (
                     <div className="text-center py-4 px-3 text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800">
-                      <p className="font-semibold text-slate-400">No Engine - Fuel consumables on board</p>
+                      <p className="font-semibold text-slate-400">No Fuel consumables on board</p>
                       <p className="text-[11px] text-slate-500 mt-1">
                         Use "+ Quick Add Treatment" above or add fuel additives in the Parts Catalog.
                       </p>

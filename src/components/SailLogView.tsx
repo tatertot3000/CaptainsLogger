@@ -852,13 +852,10 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                 className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow-sm hover:border-slate-700 transition"
               >
                 {/* Trip Header (Clickable to toggle collapse/expand) */}
-                <div className="flex items-start justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleTripExpanded(trip.id)}
-                    className="min-w-0 text-left flex-1 group cursor-pointer"
-                  >
-                    <div className="flex items-center gap-2 flex-wrap">
+                <div className="space-y-2">
+                  {/* Row 1: Status & Date Badges + Stats & Action Buttons */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
                       <span
                         className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border flex items-center gap-1 ${
                           trip.status === 'underway'
@@ -893,47 +890,54 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                       )}
                     </div>
 
-                    <h3 className="text-base font-bold text-slate-100 group-hover:text-sky-300 transition mt-1.5 flex items-center gap-1.5">
-                      {isExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-sky-400 shrink-0" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0" />
-                      )}
-                      <span>{trip.title}</span>
-                    </h3>
-                  </button>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <div className="text-right text-xs">
-                      <div className="text-teal-400 font-mono font-bold flex items-center justify-end gap-1">
-                        <Navigation className="w-3.5 h-3.5" />
-                        <span>{Math.round(tripNm * 10) / 10} NM</span>
+                    <div className="flex items-center gap-2 shrink-0 ml-auto">
+                      <div className="text-right text-xs">
+                        <div className="text-teal-400 font-mono font-bold flex items-center justify-end gap-1">
+                          <Navigation className="w-3.5 h-3.5" />
+                          <span>{Math.round(tripNm * 10) / 10} NM</span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          {legCount} {legCount === 1 ? 'leg' : 'legs'}
+                        </div>
                       </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        {legCount} {legCount === 1 ? 'leg' : 'legs'}
-                      </div>
-                    </div>
 
-                    {/* Trip actions */}
-                    <div className="flex items-center gap-1 pl-1 border-l border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => openEditTripModal(trip)}
-                        className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition"
-                        title="Edit voyage details"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteTrip(trip.id)}
-                        className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition"
-                        title="Delete voyage"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {/* Trip actions */}
+                      <div className="flex items-center gap-1 pl-1 border-l border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => openEditTripModal(trip)}
+                          className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition"
+                          title="Edit voyage details"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTrip(trip.id)}
+                          className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition"
+                          title="Delete voyage"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Row 2: Dedicated Full-Width Voyage Title */}
+                  <button
+                    type="button"
+                    onClick={() => toggleTripExpanded(trip.id)}
+                    className="min-w-0 text-left w-full group cursor-pointer block pt-0.5"
+                  >
+                    <h3 className="text-base font-bold text-slate-100 group-hover:text-sky-300 transition flex items-start gap-1.5 w-full">
+                      {isExpanded ? (
+                        <ChevronDown className="w-4 h-4 text-sky-400 shrink-0 mt-1" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0 mt-1" />
+                      )}
+                      <span className="w-full break-words">{trip.title}</span>
+                    </h3>
+                  </button>
                 </div>
 
                 {trip.tripNotes && (

@@ -54,10 +54,11 @@ interface BackupSettingsViewProps {
 }
 
 const STANDARD_CATEGORIES: string[] = [
-  'Engine - Fuel',
-  'Engine - Cooling',
-  'Engine - Lubrication',
-  'Engine - Electrical',
+  'Engine',
+  'Cooling',
+  'Fuel',
+  'Lubrication',
+  'Electrical',
   'Transmission',
   'Plumbing & Water',
   'Rigging / Deck',
@@ -191,7 +192,7 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
   const [editingCategoryNewName, setEditingCategoryNewName] = useState('');
   const [newCustomCategoryInput, setNewCustomCategoryInput] = useState('');
   const [reassignModalOldCat, setReassignModalOldCat] = useState<string | null>(null);
-  const [reassignTargetCat, setReassignTargetCat] = useState('Engine - Lubrication');
+  const [reassignTargetCat, setReassignTargetCat] = useState('Engine');
 
   const customCategoriesList = useMemo(() => {
     const set = new Set<string>(db.customCategories || []);

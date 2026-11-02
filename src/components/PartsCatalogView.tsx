@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   AlertCircle,
   Anchor,
+  BookOpen,
   Calendar,
   Camera,
   Check,
@@ -38,6 +39,8 @@ import {
   SystemCategory,
 } from '../types';
 import { getConsumableTotals, getVendorSearchLinks } from '../utils/vendors';
+import { ManualsLibrarySection } from './ManualsLibrarySection';
+import { findMatchingManual, openOrShareManualPdf } from '../db/pdfStorage';
 
 interface PartsCatalogViewProps {
   db: CaptainsDatabase;
@@ -47,10 +50,11 @@ interface PartsCatalogViewProps {
 }
 
 const CATEGORIES: SystemCategory[] = [
-  'Engine - Fuel',
-  'Engine - Cooling',
-  'Engine - Lubrication',
-  'Engine - Electrical',
+  'Engine',
+  'Cooling',
+  'Fuel',
+  'Lubrication',
+  'Electrical',
   'Transmission',
   'Plumbing & Water',
   'Rigging / Deck',
@@ -74,32 +78,39 @@ const BASE_SYSTEM_TABS: SystemTab[] = [
     matches: () => true,
   },
   {
-    id: 'Engine - Fuel',
-    label: 'Engine Fuel',
-    defaultCategory: 'Engine - Fuel',
-    icon: Fuel,
-    matches: (cat) => cat === 'Engine - Fuel' || cat === 'Fuel System',
+    id: 'Engine',
+    label: 'Engine',
+    defaultCategory: 'Engine',
+    icon: Cog,
+    matches: (cat) => cat === 'Engine',
   },
   {
-    id: 'Engine - Cooling',
-    label: 'Engine Cooling',
-    defaultCategory: 'Engine - Cooling',
+    id: 'Cooling',
+    label: 'Cooling',
+    defaultCategory: 'Cooling',
     icon: Waves,
-    matches: (cat) => cat === 'Engine - Cooling' || cat === 'Cooling',
+    matches: (cat) => cat === 'Cooling' || cat === 'Engine - Cooling',
   },
   {
-    id: 'Engine - Lubrication',
-    label: 'Engine Lubrication',
-    defaultCategory: 'Engine - Lubrication',
+    id: 'Fuel',
+    label: 'Fuel',
+    defaultCategory: 'Fuel',
+    icon: Fuel,
+    matches: (cat) => cat === 'Fuel' || cat === 'Engine - Fuel' || cat === 'Fuel System',
+  },
+  {
+    id: 'Lubrication',
+    label: 'Lubrication',
+    defaultCategory: 'Lubrication',
     icon: Droplet,
-    matches: (cat) => cat === 'Engine - Lubrication' || cat === 'Engine',
+    matches: (cat) => cat === 'Lubrication' || cat === 'Engine - Lubrication',
   },
   {
-    id: 'Engine - Electrical',
-    label: 'Engine Electrical',
-    defaultCategory: 'Engine - Electrical',
+    id: 'Electrical',
+    label: 'Electrical',
+    defaultCategory: 'Electrical',
     icon: Zap,
-    matches: (cat) => cat === 'Engine - Electrical' || cat === 'Electrical',
+    matches: (cat) => cat === 'Electrical' || cat === 'Engine - Electrical',
   },
   {
     id: 'Transmission',
@@ -141,6 +152,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
   const [selectedSystems, setSelectedSystems] = useState<string[]>([]);
   const [selectedItemTypes, setSelectedItemTypes] = useState<string[]>([]);
   const [filterLowStockOnly, setFilterLowStockOnly] = useState(false);
+  const [catalogSubView, setCatalogSubView] = useState<'parts' | 'manuals'>('parts');
   const [selectedQueryByPart, setSelectedQueryByPart] = useState<Record<string, string>>({});
   const [showAddPartModal, setShowAddPartModal] = useState(false);
   const [editingPart, setEditingPart] = useState<PartItem | null>(null);
@@ -148,7 +160,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
   // Add / Edit part form state
   const [itemType, setItemType] = useState<InventoryItemType>('part');
   const [name, setName] = useState('');
-  const [category, setCategory] = useState<SystemCategory>('Engine - Lubrication');
+  const [category, setCategory] = useState<SystemCategory>('Engine');
   const [equipmentModel, setEquipmentModel] = useState(db.vessel.engineMakeModel);
   const [oemPartNumber, setOemPartNumber] = useState('');
   const [crossRefsRaw, setCrossRefsRaw] = useState('');
@@ -164,6 +176,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
   const [vendorUrl, setVendorUrl] = useState('');
   const [locationOnBoat, setLocationOnBoat] = useState('');
   const [notes, setNotes] = useState('');
+  const [manualId, setManualId] = useState('');
+  const [manualPage, setManualPage] = useState('');
   const [editingDatePartId, setEditingDatePartId] = useState<string | null>(null);
   const [editingContainerData, setEditingContainerData] = useState<{
     partId: string;
@@ -262,7 +276,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     } else if (activeSystemTab.defaultCategory) {
       setCategory(activeSystemTab.defaultCategory);
     } else {
-      setCategory('Engine - Lubrication');
+      setCategory('Engine');
     }
     setEquipmentModel(db.vessel.engineMakeModel);
     setOemPartNumber('');
@@ -277,6 +291,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     setVendorUrl('');
     setLocationOnBoat('');
     setNotes('');
+    setManualId('');
+    setManualPage('');
     setIsAddingCustomCategory(false);
     setCustomCategoryInput('');
     setModalContainers([
@@ -309,6 +325,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     setVendorUrl(part.preferredVendorUrl || '');
     setLocationOnBoat(part.locationOnBoat || '');
     setNotes(part.notes || '');
+    setManualId(part.manualId || '');
+    setManualPage(part.manualPage || '');
     setIsAddingCustomCategory(false);
     setCustomCategoryInput('');
 
@@ -627,6 +645,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
             preferredVendorUrl: vendorUrl.trim() || undefined,
             locationOnBoat: locationOnBoat.trim() || undefined,
             notes: notes.trim() || undefined,
+            manualId: manualId || undefined,
+            manualPage: manualPage.trim() || undefined,
           };
         }),
         customCategories:
@@ -701,6 +721,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
         preferredVendorUrl: vendorUrl.trim() || undefined,
         locationOnBoat: locationOnBoat.trim() || undefined,
         notes: notes.trim() || undefined,
+        manualId: manualId || undefined,
+        manualPage: manualPage.trim() || undefined,
       };
 
       onUpdateDb((prev) => ({
@@ -762,6 +784,25 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
   const lowStockCount = db.parts.filter((p) => p.quantityOnBoard <= p.minQuantity).length;
   const consumableCount = db.parts.filter((p) => p.itemType === 'consumable').length;
   const discretePartCount = db.parts.filter((p) => p.itemType !== 'consumable').length;
+
+  const filteredManuals = (db.manuals || []).filter((manual) => {
+    if (selectedSystems.length > 0) {
+      const matchesAnySystem = systemTabs.some(
+        (tab) => selectedSystems.includes(tab.id) && tab.matches(manual.category)
+      );
+      if (!matchesAnySystem) return false;
+    }
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      manual.title.toLowerCase().includes(q) ||
+      manual.equipmentModel.toLowerCase().includes(q) ||
+      manual.category.toLowerCase().includes(q) ||
+      (manual.fileName && manual.fileName.toLowerCase().includes(q)) ||
+      (manual.pageHints && manual.pageHints.toLowerCase().includes(q)) ||
+      (manual.notes && manual.notes.toLowerCase().includes(q))
+    );
+  });
 
   // Track total parts and consumables purchase costs across on-board inventory
   const inventoryCosts = useMemo(() => {
@@ -911,12 +952,44 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
 
       {/* Search & Filter Header */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 space-y-3 relative z-20">
+        {/* Segmented Sub-Tab Switcher: Spares & Consumables vs Manuals & PDFs */}
+        <div className="grid grid-cols-2 gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+          <button
+            type="button"
+            onClick={() => setCatalogSubView('parts')}
+            className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+              catalogSubView === 'parts'
+                ? 'bg-sky-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Package className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Spares & Fluids ({filteredParts.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCatalogSubView('manuals')}
+            className={`py-2 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+              catalogSubView === 'manuals'
+                ? 'bg-indigo-600 text-white shadow'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <BookOpen className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Manuals & PDFs ({filteredManuals.length})</span>
+          </button>
+        </div>
+
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search part name, consumable, OEM #, Sierra #, system..."
+              placeholder={
+                catalogSubView === 'manuals'
+                  ? 'Search manuals, engine model, page hint (e.g. Impeller)...'
+                  : 'Search part name, consumable, OEM #, Sierra #, system...'
+              }
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
@@ -926,13 +999,15 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
             />
           </div>
 
-          <button
-            onClick={() => openAddPartModal(activeSystemTab.defaultCategory)}
-            className="flex items-center gap-1.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs px-3 py-2 rounded-lg transition shrink-0 shadow"
-          >
-            <Plus className="w-4 h-4" />
-            Add Item
-          </button>
+          {catalogSubView === 'parts' && (
+            <button
+              onClick={() => openAddPartModal(activeSystemTab.defaultCategory)}
+              className="flex items-center gap-1.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs px-3 py-2 rounded-lg transition shrink-0 shadow"
+            >
+              <Plus className="w-4 h-4" />
+              Add Item
+            </button>
+          )}
         </div>
 
         {/* Dropdown Filters (Vessel System & Item Type) */}
@@ -1267,135 +1342,166 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
         )}
       </div>
 
-      {/* Empty State if no items in selected system */}
-      {filteredParts.length === 0 && (
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-center space-y-2">
-          <div className="text-sm font-bold text-slate-200">
-            No items found in {activeSystemTab.label}
-          </div>
-          <p className="text-xs text-slate-400">
-            Add spare parts or tracked consumables to this system to monitor stock and prices.
-          </p>
-          <button
-            onClick={() => openAddPartModal(activeSystemTab.defaultCategory)}
-            className="inline-flex items-center gap-1.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-lg transition mt-1"
-          >
-            <Plus className="w-4 h-4" />
-            Add Item to {activeSystemTab.label}
-          </button>
-        </div>
-      )}
+      {catalogSubView === 'manuals' ? (
+        <ManualsLibrarySection
+          db={db}
+          onUpdateDb={onUpdateDb}
+          filteredManuals={filteredManuals}
+          customCategoryNames={customCategoryNames}
+          defaultCategory={activeSystemTab.defaultCategory}
+          onJumpToPart={(partId) => {
+            setCatalogSubView('parts');
+            setExpandedPartIds((prev) => ({ ...prev, [partId]: true }));
+          }}
+        />
+      ) : (
+        <>
+          {/* Empty State if no items in selected system */}
+          {filteredParts.length === 0 && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 text-center space-y-2">
+              <div className="text-sm font-bold text-slate-200">
+                No items found in {activeSystemTab.label}
+              </div>
+              <p className="text-xs text-slate-400">
+                Add spare parts or tracked consumables to this system to monitor stock and prices.
+              </p>
+              <button
+                onClick={() => openAddPartModal(activeSystemTab.defaultCategory)}
+                className="inline-flex items-center gap-1.5 bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-lg transition mt-1"
+              >
+                <Plus className="w-4 h-4" />
+                Add Item to {activeSystemTab.label}
+              </button>
+            </div>
+          )}
 
-      {/* Parts & Consumables Cards */}
-      <div className="space-y-3">
-        {filteredParts.map((part) => {
-          const isConsumable = part.itemType === 'consumable';
-          const totals = getConsumableTotals(part);
-          const effectiveQty = isConsumable ? totals.totalRemaining : part.quantityOnBoard;
-          const isLow = effectiveQty <= part.minQuantity;
-          const isHighlighted = highlightedPartId === part.id;
-          const activeSearchNumber = selectedQueryByPart[part.id] || part.oemPartNumber;
-          const vendorLinks = getVendorSearchLinks(part, activeSearchNumber);
-          const unitLabel = part.unit || (isConsumable ? 'oz' : 'each');
-          const stepDelta =
-            isConsumable && ['oz', 'liters', 'quarts', 'gal'].includes(unitLabel) ? 0.5 : 1;
+          {/* Parts & Consumables Cards */}
+          <div className="space-y-3">
+            {filteredParts.map((part) => {
+              const isConsumable = part.itemType === 'consumable';
+              const totals = getConsumableTotals(part);
+              const effectiveQty = isConsumable ? totals.totalRemaining : part.quantityOnBoard;
+              const isLow = effectiveQty <= part.minQuantity;
+              const isHighlighted = highlightedPartId === part.id;
+              const activeSearchNumber = selectedQueryByPart[part.id] || part.oemPartNumber;
+              const vendorLinks = getVendorSearchLinks(part, activeSearchNumber);
+              const unitLabel = part.unit || (isConsumable ? 'oz' : 'each');
+              const stepDelta =
+                isConsumable && ['oz', 'liters', 'quarts', 'gal'].includes(unitLabel) ? 0.5 : 1;
+              const linkedManual = findMatchingManual(db.manuals, part);
 
-          // Sorted containers (oldest purchase date first)
-          const sortedContainers = isConsumable
-            ? [...(part.containers || [])].sort((a, b) =>
-                (a.datePurchased || '').localeCompare(b.datePurchased || '')
-              )
-            : [];
-          const isPartExpanded = Boolean(expandedPartIds[part.id]) || isHighlighted;
+              // Sorted containers (oldest purchase date first)
+              const sortedContainers = isConsumable
+                ? [...(part.containers || [])].sort((a, b) =>
+                    (a.datePurchased || '').localeCompare(b.datePurchased || '')
+                  )
+                : [];
+              const isPartExpanded = Boolean(expandedPartIds[part.id]) || isHighlighted;
 
-          return (
-            <div
-              key={part.id}
-              className={`bg-slate-900 rounded-xl p-4 space-y-3 transition border ${
-                isHighlighted
-                  ? 'border-sky-400 ring-2 ring-sky-500/30'
-                  : isLow
-                  ? 'border-rose-500/50'
-                  : 'border-slate-800'
-              }`}
-            >
-              {/* Top Row: Badges and Tags */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded flex items-center gap-1 ${
-                      isConsumable
-                        ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
-                        : 'bg-slate-800 text-slate-300'
-                    }`}
-                  >
-                    {isConsumable ? (
-                      <>
-                        <FlaskConical className="w-3 h-3 text-teal-400" />
-                        Consumable ({sortedContainers.length}{' '}
-                        {sortedContainers.length === 1 ? 'container' : 'containers'})
-                      </>
-                    ) : (
-                      <>
-                        <Package className="w-3 h-3 text-sky-400" />
-                        Spare Part
-                      </>
-                    )}
-                  </span>
-                  <span className="text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-300">
-                    {part.category}
-                  </span>
-
-                  {/* For discrete parts, show Date Purchased tag in header (consumables show per-container dates below) */}
-                  {!isConsumable &&
-                    (editingDatePartId === part.id ? (
-                      <input
-                        type="date"
-                        autoFocus
-                        defaultValue={
-                          part.datePurchased || new Date().toISOString().slice(0, 10)
-                        }
-                        onBlur={(e) => handleUpdatePurchaseDate(part.id, e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleUpdatePurchaseDate(
-                              part.id,
-                              (e.target as HTMLInputElement).value
-                            );
-                          }
-                        }}
-                        className="bg-slate-950 border border-amber-500 rounded px-2 py-0.5 text-[11px] font-mono text-amber-200"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => setEditingDatePartId(part.id)}
-                        title="Date Purchased tag (Tap to update purchase date)"
-                        className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:border-amber-400 flex items-center gap-1 transition"
+              return (
+                <div
+                  key={part.id}
+                  className={`bg-slate-900 rounded-xl p-4 space-y-3 transition border ${
+                    isHighlighted
+                      ? 'border-sky-400 ring-2 ring-sky-500/30'
+                      : isLow
+                      ? 'border-rose-500/50'
+                      : 'border-slate-800'
+                  }`}
+                >
+                  {/* Top Row: Badges and Tags */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span
+                        className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded flex items-center gap-1 ${
+                          isConsumable
+                            ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
+                            : 'bg-slate-800 text-slate-300'
+                        }`}
                       >
-                        <Calendar className="w-3 h-3 text-amber-400" />
-                        <span>Purchased: {part.datePurchased || 'Set Date'}</span>
-                      </button>
-                    ))}
-
-                  <span className="text-xs text-sky-400 font-medium">
-                    {part.equipmentModel}
-                  </span>
-
-                  {part.photos && part.photos.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setLightboxPhoto(part.photos![0])}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition cursor-pointer"
-                      title="Click to view part photo"
-                    >
-                      <Camera className="w-3 h-3 text-emerald-400" />
-                      <span>
-                        {part.photos.length} {part.photos.length === 1 ? 'Photo' : 'Photos'}
+                        {isConsumable ? (
+                          <>
+                            <FlaskConical className="w-3 h-3 text-teal-400" />
+                            Consumable ({sortedContainers.length}{' '}
+                            {sortedContainers.length === 1 ? 'container' : 'containers'})
+                          </>
+                        ) : (
+                          <>
+                            <Package className="w-3 h-3 text-sky-400" />
+                            Spare Part
+                          </>
+                        )}
                       </span>
-                    </button>
-                  )}
-                </div>
+                      <span className="text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                        {part.category}
+                      </span>
+
+                      {/* For discrete parts, show Date Purchased tag in header (consumables show per-container dates below) */}
+                      {!isConsumable &&
+                        (editingDatePartId === part.id ? (
+                          <input
+                            type="date"
+                            autoFocus
+                            defaultValue={
+                              part.datePurchased || new Date().toISOString().slice(0, 10)
+                            }
+                            onBlur={(e) => handleUpdatePurchaseDate(part.id, e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleUpdatePurchaseDate(
+                                  part.id,
+                                  (e.target as HTMLInputElement).value
+                                );
+                              }
+                            }}
+                            className="bg-slate-950 border border-amber-500 rounded px-2 py-0.5 text-[11px] font-mono text-amber-200"
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setEditingDatePartId(part.id)}
+                            title="Date Purchased tag (Tap to update purchase date)"
+                            className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 hover:border-amber-400 flex items-center gap-1 transition"
+                          >
+                            <Calendar className="w-3 h-3 text-amber-400" />
+                            <span>Purchased: {part.datePurchased || 'Set Date'}</span>
+                          </button>
+                        ))}
+
+                      <span className="text-xs text-sky-400 font-medium">
+                        {part.equipmentModel}
+                      </span>
+
+                      {linkedManual && (
+                        <button
+                          type="button"
+                          onClick={() => openOrShareManualPdf(linkedManual, part.manualPage)}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-500/40 hover:bg-indigo-500/30 transition cursor-pointer"
+                          title={`Open ${linkedManual.title}${
+                            part.manualPage ? ` (${part.manualPage})` : ''
+                          }`}
+                        >
+                          <BookOpen className="w-3 h-3 text-indigo-300" />
+                          <span>
+                            Manual PDF{part.manualPage ? ` (${part.manualPage})` : ''}
+                          </span>
+                        </button>
+                      )}
+
+                      {part.photos && part.photos.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setLightboxPhoto(part.photos![0])}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition cursor-pointer"
+                          title="Click to view part photo"
+                        >
+                          <Camera className="w-3 h-3 text-emerald-400" />
+                          <span>
+                            {part.photos.length} {part.photos.length === 1 ? 'Photo' : 'Photos'}
+                          </span>
+                        </button>
+                      )}
+                    </div>
 
                 {/* Dedicated Full-Width Title Row: 100% width with NO widgets on the right */}
                 <button
@@ -1907,7 +2013,9 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
             </div>
           );
         })}
-      </div>
+          </div>
+        </>
+      )}
 
       {/* Modal: Add / Edit Part or Consumable */}
       {showAddPartModal && (
@@ -2392,6 +2500,40 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                 onChange={(e) => setVendorUrl(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
               />
+            </div>
+
+            {/* Linked Equipment Manual (PDF) & Page Reference */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-indigo-950/20 border border-indigo-500/30 rounded-xl p-2.5">
+              <div className="sm:col-span-2">
+                <label className="block text-xs text-indigo-300 font-semibold mb-1 flex items-center gap-1">
+                  <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+                  Linked Manual (PDF)
+                </label>
+                <select
+                  value={manualId}
+                  onChange={(e) => setManualId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"
+                >
+                  <option value="">Auto-match by equipment or None</option>
+                  {(db.manuals || []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-indigo-300 font-semibold mb-1">
+                  Page / Section Ref
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., p. 42"
+                  value={manualPage}
+                  onChange={(e) => setManualPage(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white font-mono"
+                />
+              </div>
             </div>
 
             <div>

@@ -3,6 +3,7 @@ import {
   AlertCircle,
   AlertTriangle,
   Anchor,
+  BookOpen,
   Calendar,
   Camera,
   Check,
@@ -50,6 +51,8 @@ import {
   ScheduleStatus,
 } from '../utils/vendors';
 import { IS_DEMO_MODE } from '../utils/demoMode';
+import { findMatchingManual, openOrShareManualPdf } from '../db/pdfStorage';
+import { ManualsLibrarySection } from './ManualsLibrarySection';
 
 interface MaintenanceViewProps {
   db: CaptainsDatabase;
@@ -58,10 +61,11 @@ interface MaintenanceViewProps {
 }
 
 const CATEGORIES: SystemCategory[] = [
-  'Engine - Fuel',
-  'Engine - Cooling',
-  'Engine - Lubrication',
-  'Engine - Electrical',
+  'Engine',
+  'Cooling',
+  'Fuel',
+  'Lubrication',
+  'Electrical',
   'Transmission',
   'Plumbing & Water',
   'Rigging / Deck',
@@ -85,32 +89,39 @@ const BASE_SYSTEM_TABS: SystemTab[] = [
     matches: () => true,
   },
   {
-    id: 'Engine - Fuel',
-    label: 'Engine Fuel',
-    defaultCategory: 'Engine - Fuel',
-    icon: Fuel,
-    matches: (cat) => cat === 'Engine - Fuel' || cat === 'Fuel System',
+    id: 'Engine',
+    label: 'Engine',
+    defaultCategory: 'Engine',
+    icon: Cog,
+    matches: (cat) => cat === 'Engine',
   },
   {
-    id: 'Engine - Cooling',
-    label: 'Engine Cooling',
-    defaultCategory: 'Engine - Cooling',
+    id: 'Cooling',
+    label: 'Cooling',
+    defaultCategory: 'Cooling',
     icon: Waves,
-    matches: (cat) => cat === 'Engine - Cooling' || cat === 'Cooling',
+    matches: (cat) => cat === 'Cooling' || cat === 'Engine - Cooling',
   },
   {
-    id: 'Engine - Lubrication',
-    label: 'Engine Lubrication',
-    defaultCategory: 'Engine - Lubrication',
+    id: 'Fuel',
+    label: 'Fuel',
+    defaultCategory: 'Fuel',
+    icon: Fuel,
+    matches: (cat) => cat === 'Fuel' || cat === 'Engine - Fuel' || cat === 'Fuel System',
+  },
+  {
+    id: 'Lubrication',
+    label: 'Lubrication',
+    defaultCategory: 'Lubrication',
     icon: Droplet,
-    matches: (cat) => cat === 'Engine - Lubrication' || cat === 'Engine',
+    matches: (cat) => cat === 'Lubrication' || cat === 'Engine - Lubrication',
   },
   {
-    id: 'Engine - Electrical',
-    label: 'Engine Electrical',
-    defaultCategory: 'Engine - Electrical',
+    id: 'Electrical',
+    label: 'Electrical',
+    defaultCategory: 'Electrical',
     icon: Zap,
-    matches: (cat) => cat === 'Engine - Electrical' || cat === 'Electrical',
+    matches: (cat) => cat === 'Electrical' || cat === 'Engine - Electrical',
   },
   {
     id: 'Transmission',
@@ -212,7 +223,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
   // Edit service log entry modal state
   const [editingLog, setEditingLog] = useState<ServiceLogEntry | null>(null);
   const [editLogTitle, setEditLogTitle] = useState('');
-  const [editLogCategory, setEditLogCategory] = useState<string>('Engine - Lubrication');
+  const [editLogCategory, setEditLogCategory] = useState<string>('Engine');
   const [editLogStatus, setEditLogStatus] = useState<ServiceLogStatus>('completed');
   const [editLogDate, setEditLogDate] = useState('');
   const [editLogHours, setEditLogHours] = useState('');
@@ -236,7 +247,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
 
   // New schedule modal state
   const [newTitle, setNewTitle] = useState('');
-  const [newCategory, setNewCategory] = useState<SystemCategory>('Engine - Lubrication');
+  const [newCategory, setNewCategory] = useState<SystemCategory>('Engine');
   const [newIntervalMode, setNewIntervalMode] = useState<'scheduled' | 'as-needed'>('scheduled');
   const [newIntervalHours, setNewIntervalHours] = useState('100');
   const [newIntervalDays, setNewIntervalDays] = useState('365');
@@ -244,6 +255,8 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
   const [newLastDate, setNewLastDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [newSpecNotes, setNewSpecNotes] = useState('');
   const [newProcNotes, setNewProcNotes] = useState('');
+  const [newManualId, setNewManualId] = useState('');
+  const [newManualPage, setNewManualPage] = useState('');
   const [newLinkedItems, setNewLinkedItems] = useState<LinkedPartRequirement[]>([]);
   const [newTaskPhotos, setNewTaskPhotos] = useState<MaintenancePhoto[]>([]);
   const [pickerPartId, setPickerPartId] = useState('');
@@ -261,6 +274,8 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
   // Collapsible card state (cards start minimized by default and expand when title is clicked)
   const [expandedScheduleIds, setExpandedScheduleIds] = useState<Record<string, boolean>>({});
   const [expandedLogIds, setExpandedLogIds] = useState<Record<string, boolean>>({});
+  const [showManualsModal, setShowManualsModal] = useState(false);
+  const [manualsSearchQuery, setManualsSearchQuery] = useState('');
 
   // Dropdown pull-down open states
   const [isSystemDropdownOpen, setIsSystemDropdownOpen] = useState(false);
@@ -316,7 +331,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
     if (activeSystemTab.defaultCategory) {
       setNewCategory(activeSystemTab.defaultCategory);
     } else {
-      setNewCategory('Engine - Lubrication');
+      setNewCategory('Engine');
     }
     setNewIntervalMode('scheduled');
     setNewIntervalHours('100');
@@ -325,6 +340,8 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
     setNewLastDate(new Date().toISOString().slice(0, 10));
     setNewSpecNotes('');
     setNewProcNotes('');
+    setNewManualId('');
+    setNewManualPage('');
     setNewLinkedItems([]);
     setNewTaskPhotos([]);
     setIsAddingCustomCategory(false);
@@ -344,6 +361,8 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
     setNewLastDate(sched.lastCompletedDate || '');
     setNewSpecNotes(sched.wrenchOrSpecNotes || '');
     setNewProcNotes(sched.procedureNotes || '');
+    setNewManualId(sched.manualId || '');
+    setNewManualPage(sched.manualPage || '');
     setNewLinkedItems([...(sched.linkedParts || [])]);
     setNewTaskPhotos([...(sched.photos || [])]);
     setIsAddingCustomCategory(false);
@@ -931,6 +950,8 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                 linkedParts: newLinkedItems,
                 wrenchOrSpecNotes: newSpecNotes.trim() || undefined,
                 procedureNotes: newProcNotes.trim() || undefined,
+                manualId: newManualId || undefined,
+                manualPage: newManualPage.trim() || undefined,
                 photos: newTaskPhotos.length > 0 ? newTaskPhotos : undefined,
               }
             : s
@@ -952,6 +973,8 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
         linkedParts: newLinkedItems,
         wrenchOrSpecNotes: newSpecNotes.trim() || undefined,
         procedureNotes: newProcNotes.trim() || undefined,
+        manualId: newManualId || undefined,
+        manualPage: newManualPage.trim() || undefined,
         photos: newTaskPhotos.length > 0 ? newTaskPhotos : undefined,
       };
 
@@ -1330,8 +1353,17 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
             </div>
 
             <div className="flex items-center gap-2 text-xs">
-              <span className="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-lg text-slate-300 font-semibold flex items-center gap-1.5">
-                <Wrench className="w-3.5 h-3.5 text-sky-400" />
+              <button
+                type="button"
+                onClick={() => setShowManualsModal(true)}
+                className="bg-indigo-600/20 hover:bg-indigo-600/35 border border-indigo-500/40 px-2.5 py-1.5 rounded-lg text-indigo-200 font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
+                title="Open Equipment Manuals & PDFs Locker"
+              >
+                <BookOpen className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+                <span>Manuals ({(db.manuals || []).length})</span>
+              </button>
+              <span className="bg-slate-950 border border-slate-800 px-2.5 py-1.5 rounded-lg text-slate-300 font-semibold flex items-center gap-1.5">
+                <Wrench className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                 <span>{filteredEvaluated.length} Tasks</span>
               </span>
             </div>
@@ -1392,20 +1424,17 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
               return !part || part.quantityOnBoard <= part.minQuantity;
             });
             const isExpanded = Boolean(expandedScheduleIds[schedule.id]);
+            const linkedManual = findMatchingManual(db.manuals, schedule);
 
             return (
               <div
                 key={schedule.id}
                 className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3 shadow-sm"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleScheduleExpanded(schedule.id)}
-                    className="text-left flex-1 min-w-0 group cursor-pointer"
-                    title={isExpanded ? 'Click to collapse task details' : 'Click to expand task details'}
-                  >
-                    <div className="flex items-center gap-2 flex-wrap">
+                <div className="space-y-2">
+                  {/* Row 1: Category, Status, Manual Badges and Log Done Button */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap min-w-0">
                       <span className="text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-300">
                         {schedule.category}
                       </span>
@@ -1429,25 +1458,53 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                           ? 'PENDING'
                           : 'SCHEDULED'}
                       </span>
-                    </div>
-                    <h3 className="text-base font-bold text-slate-100 group-hover:text-sky-300 transition mt-1.5 flex items-center gap-1.5">
-                      {isExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-sky-400 shrink-0" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0" />
-                      )}
-                      <span>{schedule.title}</span>
-                    </h3>
-                    <p className="text-xs text-slate-400 mt-0.5 pl-5">{summaryText}</p>
-                  </button>
 
+                      {linkedManual && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void openOrShareManualPdf(linkedManual, schedule.manualPage);
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-500/40 hover:bg-indigo-500/30 transition cursor-pointer"
+                          title={`Open ${linkedManual.title}${
+                            schedule.manualPage ? ` (${schedule.manualPage})` : ''
+                          }`}
+                        >
+                          <BookOpen className="w-3 h-3 text-indigo-300" />
+                          <span>
+                            Manual PDF{schedule.manualPage ? ` (${schedule.manualPage})` : ''}
+                          </span>
+                        </button>
+                      )}
+                    </div>
+
+                    <button
+                      onClick={() => openLogModal(schedule)}
+                      title="Record this task as completed now"
+                      className="ml-auto shrink-0 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-lg transition shadow flex items-center gap-1"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Log Done</span>
+                    </button>
+                  </div>
+
+                  {/* Row 2: Dedicated Full-Width Task Title with 100% width across the card */}
                   <button
-                    onClick={() => openLogModal(schedule)}
-                    title="Record this task as completed now"
-                    className="shrink-0 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-3.5 py-2 rounded-lg transition shadow flex items-center gap-1"
+                    type="button"
+                    onClick={() => toggleScheduleExpanded(schedule.id)}
+                    className="text-left w-full group cursor-pointer block pt-0.5"
+                    title={isExpanded ? 'Click to collapse task details' : 'Click to expand task details'}
                   >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Log Done</span>
+                    <h3 className="text-base font-bold text-slate-100 group-hover:text-sky-300 transition flex items-start gap-1.5 w-full">
+                      {isExpanded ? (
+                        <ChevronDown className="w-4 h-4 text-sky-400 shrink-0 mt-1" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0 mt-1" />
+                      )}
+                      <span className="w-full break-words">{schedule.title}</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1 pl-5.5">{summaryText}</p>
                   </button>
                 </div>
 
@@ -2038,13 +2095,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                   key={log.id}
                   className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2.5"
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => toggleLogExpanded(log.id)}
-                      className="text-left flex-1 min-w-0 group cursor-pointer"
-                      title={isLogExpanded ? 'Click to collapse log details' : 'Click to expand log details'}
-                    >
+                  <div className="space-y-2">
+                    {/* Row 1: Badges & Right-Aligned Engine Hours/Cost/Actions */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-800 text-sky-300">
                           {log.category}
@@ -2070,39 +2123,49 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                           {log.date}
                         </span>
                       </div>
-                      <h4 className="text-sm font-bold text-slate-100 group-hover:text-sky-300 transition mt-1 flex items-center gap-1.5">
+
+                      <div className="text-right text-xs shrink-0 flex items-center gap-2 ml-auto">
+                        <div>
+                          <div className="text-sky-400 font-mono font-bold flex items-center justify-end gap-1">
+                            <Gauge className="w-3.5 h-3.5" />
+                            <span>{log.engineHours} hrs</span>
+                          </div>
+                          {log.cost > 0 && (
+                            <div className="text-emerald-400 font-semibold mt-0.5">
+                              ${log.cost.toFixed(2)}
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditLogModal(log);
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition"
+                          title="Edit service log entry"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Row 2: Dedicated Full-Width Log Title */}
+                    <button
+                      type="button"
+                      onClick={() => toggleLogExpanded(log.id)}
+                      className="text-left w-full group cursor-pointer block pt-0.5"
+                      title={isLogExpanded ? 'Click to collapse log details' : 'Click to expand log details'}
+                    >
+                      <h4 className="text-sm sm:text-base font-bold text-slate-100 group-hover:text-sky-300 transition flex items-start gap-1.5 w-full">
                         {isLogExpanded ? (
-                          <ChevronDown className="w-4 h-4 text-sky-400 shrink-0" />
+                          <ChevronDown className="w-4 h-4 text-sky-400 shrink-0 mt-1" />
                         ) : (
-                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0" />
+                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0 mt-1" />
                         )}
-                        <span>{log.title}</span>
+                        <span className="w-full break-words">{log.title}</span>
                       </h4>
                     </button>
-                    <div className="text-right text-xs shrink-0 flex items-center gap-2">
-                      <div>
-                        <div className="text-sky-400 font-mono font-bold flex items-center justify-end gap-1">
-                          <Gauge className="w-3.5 h-3.5" />
-                          <span>{log.engineHours} hrs</span>
-                        </div>
-                        {log.cost > 0 && (
-                          <div className="text-emerald-400 font-semibold mt-0.5">
-                            ${log.cost.toFixed(2)}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEditLogModal(log);
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition"
-                        title="Edit service log entry"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
                   </div>
 
                   {isLogExpanded && (
@@ -3320,6 +3383,40 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
               />
             </div>
 
+            {/* Linked Equipment Manual (PDF) & Page Reference */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-indigo-950/20 border border-indigo-500/30 rounded-xl p-2.5">
+              <div className="sm:col-span-2">
+                <label className="block text-xs text-indigo-300 font-semibold mb-1 flex items-center gap-1">
+                  <BookOpen className="w-3.5 h-3.5 text-indigo-400" />
+                  Linked Manual (PDF)
+                </label>
+                <select
+                  value={newManualId}
+                  onChange={(e) => setNewManualId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white"
+                >
+                  <option value="">None</option>
+                  {(db.manuals || []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-indigo-300 font-semibold mb-1">
+                  Page / Section Ref
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., p. 28"
+                  value={newManualPage}
+                  onChange={(e) => setNewManualPage(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white font-mono"
+                />
+              </div>
+            </div>
+
             {/* Reference Photos & Diagrams Section */}
             {!IS_DEMO_MODE ? (
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2.5">
@@ -3412,6 +3509,90 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Modal Window: Equipment Manuals & PDFs Locker */}
+      {showManualsModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3 sm:p-4 overflow-y-auto pt-[max(1rem,env(safe-area-inset-top,0px))]"
+          onClick={() => setShowManualsModal(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-800 bg-slate-950/60 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 rounded-lg bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center shrink-0">
+                  <BookOpen className="w-4 h-4 text-indigo-300" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-bold text-white truncate">
+                    Equipment Manuals & PDFs
+                  </h3>
+                  <p className="text-[11px] text-slate-400 truncate">
+                    Browse offline PDFs, page indexes, or upload new manuals
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowManualsModal(false)}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 p-1.5 rounded-lg transition shrink-0"
+                title="Close Manuals Window"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Search Filter inside Modal */}
+            <div className="px-4 pt-3 pb-2 border-b border-slate-800/80 shrink-0">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search manuals by title, engine/model, or page index (e.g., Impeller)..."
+                  value={manualsSearchQuery}
+                  onChange={(e) => setManualsSearchQuery(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
+            {/* Scrollable Manuals Content */}
+            <div className="p-4 overflow-y-auto space-y-3 flex-1">
+              <ManualsLibrarySection
+                db={db}
+                onUpdateDb={onUpdateDb}
+                filteredManuals={(db.manuals || []).filter((manual) => {
+                  if (selectedSystems.length > 0) {
+                    const matchesAny = systemTabs.some(
+                      (tab) => selectedSystems.includes(tab.id) && tab.matches(manual.category)
+                    );
+                    if (!matchesAny) return false;
+                  }
+                  if (!manualsSearchQuery.trim()) return true;
+                  const q = manualsSearchQuery.toLowerCase();
+                  return (
+                    manual.title.toLowerCase().includes(q) ||
+                    manual.equipmentModel.toLowerCase().includes(q) ||
+                    manual.category.toLowerCase().includes(q) ||
+                    (manual.fileName && manual.fileName.toLowerCase().includes(q)) ||
+                    (manual.pageHints && manual.pageHints.toLowerCase().includes(q)) ||
+                    (manual.notes && manual.notes.toLowerCase().includes(q))
+                  );
+                })}
+                customCategoryNames={customCategoryNames}
+                defaultCategory={activeSystemTab.defaultCategory}
+                onJumpToPart={(partId) => {
+                  setShowManualsModal(false);
+                  onJumpToPart(partId);
+                }}
+              />
+            </div>
+          </div>
         </div>
       )}
 
