@@ -51,6 +51,11 @@ import {
 } from '../utils/geo';
 import { LegTrackMap, MapLegData } from './LegTrackMap';
 import { PhotoLightboxModal } from './PhotoLightboxModal';
+import {
+  GpsDisclaimerModal,
+  hasAcknowledgedGpsDisclaimer,
+  setAcknowledgedGpsDisclaimer,
+} from './GpsDisclaimerModal';
 
 interface SailLogViewProps {
   db: CaptainsDatabase;
@@ -107,6 +112,36 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     legs: MapLegData[];
   } | null>(null);
   const [showHudChart, setShowHudChart] = useState(false);
+
+  // GPS Navigational Safety Disclaimer state
+  const [gpsDisclaimerTrip, setGpsDisclaimerTrip] = useState<SailTrip | null>(null);
+  const [pendingGpsAction, setPendingGpsAction] = useState<(() => void) | null>(null);
+
+  const handleStartAutoLegWithDisclaimer = (trip: SailTrip) => {
+    if (hasAcknowledgedGpsDisclaimer(trip.id)) {
+      startAutoLeg(trip.id);
+    } else {
+      setGpsDisclaimerTrip(trip);
+      setPendingGpsAction(() => () => startAutoLeg(trip.id));
+    }
+  };
+
+  const handleAcceptGpsDisclaimer = (dontShowAgainThisVoyage: boolean) => {
+    if (dontShowAgainThisVoyage && gpsDisclaimerTrip) {
+      setAcknowledgedGpsDisclaimer(gpsDisclaimerTrip.id, true);
+    }
+    const action = pendingGpsAction;
+    setGpsDisclaimerTrip(null);
+    setPendingGpsAction(null);
+    if (action) {
+      action();
+    }
+  };
+
+  const handleCancelGpsDisclaimer = () => {
+    setGpsDisclaimerTrip(null);
+    setPendingGpsAction(null);
+  };
 
   // Expandable trip card state (trips start collapsed/minimized by default)
   const [expandedTripIds, setExpandedTripIds] = useState<Record<string, boolean>>({});
@@ -1443,7 +1478,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                               )}
                               <button
                                 type="button"
-                                onClick={() => startAutoLeg(trip.id)}
+                                onClick={() => handleStartAutoLegWithDisclaimer(trip)}
                                 className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-700/60 rounded-lg px-2.5 py-1 transition cursor-pointer"
                                 title="Start tracking speed, distance and time with device GPS"
                               >
@@ -2592,6 +2627,17 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
           imageUrl={previewPhotoUrl}
           title="Passage Journal Photo"
           onClose={() => setPreviewPhotoUrl(null)}
+        />
+      )}
+
+      {/* GPS Navigational Safety Disclaimer Modal */}
+      {gpsDisclaimerTrip && (
+        <GpsDisclaimerModal
+          isOpen={!!gpsDisclaimerTrip}
+          voyageTitle={gpsDisclaimerTrip.title}
+          tripId={gpsDisclaimerTrip.id}
+          onAccept={handleAcceptGpsDisclaimer}
+          onCancel={handleCancelGpsDisclaimer}
         />
       )}
     </div>

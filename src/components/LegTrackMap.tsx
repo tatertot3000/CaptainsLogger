@@ -10,6 +10,7 @@ import {
   Eye,
   EyeOff,
   DownloadCloud,
+  AlertTriangle,
 } from 'lucide-react';
 import type { GpsFix } from '../types';
 import { toMarineCoordinates } from '../utils/geo';
@@ -633,6 +634,10 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
         </div>
 
         <div className="flex items-center gap-3 text-[11px] text-slate-400 shrink-0">
+          <div className="hidden sm:flex items-center gap-1 text-amber-400/80 text-[10.5px]">
+            <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+            <span>Supplemental aid only • Not for primary navigation</span>
+          </div>
           <div className="flex items-center gap-1">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
             <span>Departure</span>
