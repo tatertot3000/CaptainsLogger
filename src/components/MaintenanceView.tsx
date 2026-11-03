@@ -44,6 +44,7 @@ import {
   ServiceLogStatus,
   SystemCategory,
 } from '../types';
+import { PhotoLightboxModal } from './PhotoLightboxModal';
 import {
   compressImageFile,
   deductFromPartInventory,
@@ -3625,65 +3626,16 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
         </div>
       )}
 
-      {/* Full-Screen Photo Lightbox Viewer */}
+      {/* Full-Screen Photo Lightbox Viewer with Zoom & Download */}
       {lightboxPhoto && (
-        <div
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-          onClick={() => setLightboxPhoto(null)}
-        >
-          <div
-            className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full overflow-hidden shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800">
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-sky-400 truncate">
-                  {lightboxPhoto.contextTitle}
-                </div>
-                <div className="text-[11px] text-slate-400">
-                  Added {lightboxPhoto.photo.addedAt}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {lightboxPhoto.onDelete && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      lightboxPhoto.onDelete?.();
-                      setLightboxPhoto(null);
-                    }}
-                    className="flex items-center gap-1 bg-rose-950/70 hover:bg-rose-800 text-rose-200 border border-rose-700/60 px-2.5 py-1 rounded-lg text-xs font-semibold transition"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setLightboxPhoto(null)}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 p-1.5 rounded-lg transition"
-                  title="Close photo viewer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-black flex items-center justify-center max-h-[70vh] overflow-auto">
-              <img
-                src={lightboxPhoto.photo.dataUrl}
-                alt={lightboxPhoto.photo.caption || lightboxPhoto.contextTitle}
-                className="max-w-full max-h-[70vh] object-contain"
-              />
-            </div>
-
-            {lightboxPhoto.photo.caption && (
-              <div className="px-4 py-3 bg-slate-950 border-t border-slate-800 text-xs text-slate-200">
-                {lightboxPhoto.photo.caption}
-              </div>
-            )}
-          </div>
-        </div>
+        <PhotoLightboxModal
+          imageUrl={lightboxPhoto.photo.dataUrl}
+          title={lightboxPhoto.contextTitle}
+          caption={lightboxPhoto.photo.caption}
+          dateAdded={lightboxPhoto.photo.addedAt}
+          onClose={() => setLightboxPhoto(null)}
+          onDelete={lightboxPhoto.onDelete}
+        />
       )}
     </div>
   );
