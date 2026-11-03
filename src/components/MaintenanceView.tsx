@@ -58,6 +58,8 @@ interface MaintenanceViewProps {
   db: CaptainsDatabase;
   onUpdateDb: (updater: (prev: CaptainsDatabase) => CaptainsDatabase) => void;
   onJumpToPart: (partId: string) => void;
+  showManualsModalSignal?: boolean;
+  onCloseManualsModal?: () => void;
 }
 
 const CATEGORIES: SystemCategory[] = [
@@ -157,6 +159,8 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
   db,
   onUpdateDb,
   onJumpToPart,
+  showManualsModalSignal,
+  onCloseManualsModal,
 }) => {
   const [subTab, setSubTab] = useState<'schedules' | 'history'>('schedules');
   const [selectedSystems, setSelectedSystems] = useState<string[]>([]);
@@ -276,6 +280,19 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
   const [expandedLogIds, setExpandedLogIds] = useState<Record<string, boolean>>({});
   const [showManualsModal, setShowManualsModal] = useState(false);
   const [manualsSearchQuery, setManualsSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (showManualsModalSignal) {
+      setShowManualsModal(true);
+    }
+  }, [showManualsModalSignal]);
+
+  const handleCloseManuals = () => {
+    setShowManualsModal(false);
+    if (onCloseManualsModal) {
+      onCloseManualsModal();
+    }
+  };
 
   // Dropdown pull-down open states
   const [isSystemDropdownOpen, setIsSystemDropdownOpen] = useState(false);
@@ -1421,7 +1438,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
             // Check if any linked consumable or part is low or missing
             const lowItems = (schedule.linkedParts || []).filter((lp) => {
               const part = db.parts.find((p) => p.id === lp.partId);
-              return !part || part.quantityOnBoard <= part.minQuantity;
+              if (!part) return true;
+              if (part.trackQuantity === false) return false;
+              return part.quantityOnBoard <= part.minQuantity;
             });
             const isExpanded = Boolean(expandedScheduleIds[schedule.id]);
             const linkedManual = findMatchingManual(db.manuals, schedule);
@@ -1582,8 +1601,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                           if (!part) return null;
                           const isConsumable = part.itemType === 'consumable';
                           const unit = part.unit || (isConsumable ? 'oz' : 'each');
-                          const isLow = part.quantityOnBoard <= part.minQuantity;
-                          const hasEnough = part.quantityOnBoard >= lp.quantityNeeded;
+                          const isTracked = part.trackQuantity !== false;
+                          const isLow = isTracked && part.quantityOnBoard <= part.minQuantity;
+                          const hasEnough = !isTracked || part.quantityOnBoard >= lp.quantityNeeded;
 
                           return (
                             <button
@@ -1612,14 +1632,16 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                               </span>
                               <span
                                 className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
-                                  hasEnough
+                                  !isTracked
+                                    ? 'bg-slate-800 text-slate-300'
+                                    : hasEnough
                                     ? isLow
                                       ? 'bg-amber-500/20 text-amber-300'
                                       : 'bg-emerald-500/20 text-emerald-300'
                                     : 'bg-rose-500/30 text-rose-200'
                                 }`}
                               >
-                                {part.quantityOnBoard} {unit} on board
+                                {isTracked ? `${part.quantityOnBoard} ${unit} on board` : 'Catalog ref'}
                               </span>
                               {isLow && (
                                 <span className="text-[10px] text-rose-400 font-extrabold underline ml-0.5">
@@ -2444,8 +2466,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                       const isConsumable = part.itemType === 'consumable';
                       const unit = part.unit || (isConsumable ? 'oz' : 'each');
                       const usedQty = parseFloat(qtyStr) || 0;
+                      const isTracked = part.trackQuantity !== false;
                       const remaining = Math.max(0, Number((part.quantityOnBoard - usedQty).toFixed(2)));
-                      const willBeLow = remaining <= part.minQuantity;
+                      const willBeLow = isTracked && remaining <= part.minQuantity;
 
                       return (
                         <div
@@ -2463,7 +2486,13 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                                 <span className="truncate">{part.name}</span>
                               </div>
                               <div className="text-[10px] text-slate-400 mt-0.5">
-                                Stock: <strong className="text-slate-200">{part.quantityOnBoard} {unit}</strong> • After: <strong className={willBeLow ? 'text-rose-400' : 'text-emerald-400'}>{remaining} {unit}</strong>
+                                {isTracked ? (
+                                  <>
+                                    Stock: <strong className="text-slate-200">{part.quantityOnBoard} {unit}</strong> • After: <strong className={willBeLow ? 'text-rose-400' : 'text-emerald-400'}>{remaining} {unit}</strong>
+                                  </>
+                                ) : (
+                                  <span className="text-slate-400">Untracked reference item</span>
+                                )}
                               </div>
                             </div>
 
@@ -2518,7 +2547,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                       .map((p) => (
                         <option key={p.id} value={p.id}>
                           {p.itemType === 'consumable' ? '💧 ' : '🔧 '}
-                          {p.name} ({p.quantityOnBoard} {p.unit || 'on board'})
+                          {p.name} {p.trackQuantity !== false ? `(${p.quantityOnBoard} ${p.unit || 'on board'})` : '(Untracked)'}
                         </option>
                       ))}
                   </select>
@@ -3516,7 +3545,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
       {showManualsModal && (
         <div
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3 sm:p-4 overflow-y-auto pt-[max(1rem,env(safe-area-inset-top,0px))]"
-          onClick={() => setShowManualsModal(false)}
+          onClick={handleCloseManuals}
         >
           <div
             className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden"
@@ -3539,7 +3568,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setShowManualsModal(false)}
+                onClick={handleCloseManuals}
                 className="bg-slate-800 hover:bg-slate-700 text-slate-200 p-1.5 rounded-lg transition shrink-0"
                 title="Close Manuals Window"
               >

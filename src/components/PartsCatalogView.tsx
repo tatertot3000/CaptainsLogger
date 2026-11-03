@@ -166,6 +166,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
   const [crossRefsRaw, setCrossRefsRaw] = useState('');
   const [qtyOnBoard, setQtyOnBoard] = useState('1');
   const [minQty, setMinQty] = useState('1');
+  const [trackQuantity, setTrackQuantity] = useState(true);
   const [unit, setUnit] = useState('each');
   const [containerSize, setContainerSize] = useState('16');
   const [dosageHint, setDosageHint] = useState('');
@@ -283,6 +284,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     setCrossRefsRaw('');
     setQtyOnBoard('1');
     setMinQty('1');
+    setTrackQuantity(true);
     setUnit('each');
     setContainerSize('16');
     setDosageHint('');
@@ -317,6 +319,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     setCrossRefsRaw(part.crossRefNumbers?.join(', ') || '');
     setQtyOnBoard(String(part.quantityOnBoard));
     setMinQty(String(part.minQuantity));
+    setTrackQuantity(part.trackQuantity !== false);
     setUnit(part.unit || (part.itemType === 'consumable' ? 'oz' : 'each'));
     setContainerSize(String(part.containerSize || 16));
     setDosageHint(part.dosageHint || '');
@@ -638,6 +641,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                 ? name.trim().toUpperCase().replace(/\s+/g, '-')
                 : 'N/A'),
             crossRefNumbers: crossRefArray,
+            trackQuantity: trackQuantity,
             quantityOnBoard: newTotalQty,
             minQuantity: Math.max(0, isNaN(parsedMin) ? 1 : parsedMin),
             datePurchased: finalPurchaseDate,
@@ -714,6 +718,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
             ? name.trim().toUpperCase().replace(/\s+/g, '-')
             : 'N/A'),
         crossRefNumbers: crossRefArray,
+        trackQuantity: trackQuantity,
         quantityOnBoard: initialQty,
         minQuantity: Math.max(0, isNaN(parsedMin) ? 1 : parsedMin),
         datePurchased: finalPurchaseDate,
@@ -765,7 +770,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
       if (!selectedItemTypes.includes(pType)) return false;
     }
 
-    if (filterLowStockOnly && part.quantityOnBoard > part.minQuantity) return false;
+    if (filterLowStockOnly && (part.trackQuantity === false || part.quantityOnBoard > part.minQuantity)) return false;
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -781,7 +786,9 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     );
   });
 
-  const lowStockCount = db.parts.filter((p) => p.quantityOnBoard <= p.minQuantity).length;
+  const lowStockCount = db.parts.filter(
+    (p) => p.trackQuantity !== false && p.quantityOnBoard <= p.minQuantity
+  ).length;
   const consumableCount = db.parts.filter((p) => p.itemType === 'consumable').length;
   const discretePartCount = db.parts.filter((p) => p.itemType !== 'consumable').length;
 
@@ -834,7 +841,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
           consumablesCost += p.lastPricePaid;
         }
 
-        if (p.quantityOnBoard <= p.minQuantity && p.lastPricePaid && p.lastPricePaid > 0) {
+        if (p.trackQuantity !== false && p.quantityOnBoard <= p.minQuantity && p.lastPricePaid && p.lastPricePaid > 0) {
           reorderEstimatedCost += p.lastPricePaid;
         }
       } else {
@@ -842,7 +849,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
         if (p.lastPricePaid && p.lastPricePaid > 0) {
           const count = Math.max(1, p.quantityOnBoard);
           partsCost += p.lastPricePaid * count;
-          if (p.quantityOnBoard <= p.minQuantity) {
+          if (p.trackQuantity !== false && p.quantityOnBoard <= p.minQuantity) {
             const needToBuy = Math.max(1, p.minQuantity - p.quantityOnBoard);
             reorderEstimatedCost += p.lastPricePaid * needToBuy;
           }
@@ -1110,7 +1117,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                       const isSelected = selectedSystems.includes(tab.id);
                       const systemParts = db.parts.filter((p) => tab.matches(p.category));
                       const systemLowCount = systemParts.filter(
-                        (p) => p.quantityOnBoard <= p.minQuantity
+                        (p) => p.trackQuantity !== false && p.quantityOnBoard <= p.minQuantity
                       ).length;
 
                       return (
@@ -1381,7 +1388,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
               const isConsumable = part.itemType === 'consumable';
               const totals = getConsumableTotals(part);
               const effectiveQty = isConsumable ? totals.totalRemaining : part.quantityOnBoard;
-              const isLow = effectiveQty <= part.minQuantity;
+              const isTracked = part.trackQuantity !== false;
+              const isLow = isTracked && effectiveQty <= part.minQuantity;
               const isHighlighted = highlightedPartId === part.id;
               const activeSearchNumber = selectedQueryByPart[part.id] || part.oemPartNumber;
               const vendorLinks = getVendorSearchLinks(part, activeSearchNumber);
@@ -1412,6 +1420,11 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                   {/* Top Row: Badges and Tags */}
                   <div className="space-y-2">
                     <div className="flex items-center gap-2 flex-wrap">
+                      {!isTracked && (
+                        <span className="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded flex items-center gap-1 bg-slate-800 text-slate-400 border border-slate-700">
+                          Untracked Ref
+                        </span>
+                      )}
                       <span
                         className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded flex items-center gap-1 ${
                           isConsumable
@@ -1537,14 +1550,20 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                       <div className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1 text-right">
                         <div
                           className={`text-sm font-extrabold font-mono ${
-                            isLow ? 'text-rose-400' : 'text-emerald-400'
+                            !isTracked
+                              ? 'text-slate-200'
+                              : isLow
+                              ? 'text-rose-400'
+                              : 'text-emerald-400'
                           }`}
                         >
                           {totals.totalRemaining}{' '}
                           <span className="text-[10px] font-normal">{unitLabel} total</span>
                         </div>
                         <div className="text-[10px] text-slate-500">
-                          min {part.minQuantity} {unitLabel} • cap {totals.totalCapacity} {unitLabel}
+                          {isTracked
+                            ? `min ${part.minQuantity} ${unitLabel} • cap ${totals.totalCapacity} ${unitLabel}`
+                            : `cap ${totals.totalCapacity} ${unitLabel} • Untracked`}
                         </div>
                       </div>
 
@@ -1570,14 +1589,18 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                       <div className="text-center min-w-[50px]">
                         <div
                           className={`text-sm font-extrabold font-mono ${
-                            isLow ? 'text-rose-400' : 'text-emerald-400'
+                            !isTracked
+                              ? 'text-slate-200'
+                              : isLow
+                              ? 'text-rose-400'
+                              : 'text-emerald-400'
                           }`}
                         >
                           {part.quantityOnBoard}{' '}
                           <span className="text-[10px] font-normal">{unitLabel}</span>
                         </div>
                         <div className="text-[10px] text-slate-500">
-                          min {part.minQuantity} {unitLabel}
+                          {isTracked ? `min ${part.minQuantity} ${unitLabel}` : 'Untracked'}
                         </div>
                       </div>
 
@@ -2229,10 +2252,15 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                     <input
                       type="number"
                       step="0.5"
-                      placeholder="4"
-                      value={minQty}
+                      disabled={!trackQuantity}
+                      placeholder={trackQuantity ? '4' : 'Untracked'}
+                      value={trackQuantity ? minQty : ''}
                       onChange={(e) => setMinQty(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white font-mono"
+                      className={`w-full bg-slate-900 border rounded px-2.5 py-1.5 text-xs font-mono ${
+                        !trackQuantity
+                          ? 'border-slate-800 text-slate-500 cursor-not-allowed'
+                          : 'border-slate-700 text-white'
+                      }`}
                     />
                   </div>
                 </div>
@@ -2251,6 +2279,24 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                 </div>
               </div>
             ) : null}
+
+            {/* Tracking Quantity Toggle */}
+            <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 space-y-1">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={trackQuantity}
+                  onChange={(e) => setTrackQuantity(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 rounded text-sky-500 bg-slate-900 border-slate-700 focus:ring-sky-500 focus:ring-offset-0"
+                />
+                <div className="text-xs">
+                  <span className="font-bold text-slate-200">Track On-Board Quantity & Spares</span>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    When checked, Captain's Logger monitors inventory and alerts you when stock is below minimum. Uncheck for catalog reference-only items.
+                  </p>
+                </div>
+              </label>
+            </div>
 
             {itemType === 'consumable' ? (
               <div className="space-y-3">
@@ -2272,9 +2318,15 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                     <input
                       type="number"
                       step="0.1"
-                      value={minQty}
+                      disabled={!trackQuantity}
+                      value={trackQuantity ? minQty : ''}
+                      placeholder={trackQuantity ? '4' : 'Untracked'}
                       onChange={(e) => setMinQty(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
+                      className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-sm font-mono ${
+                        !trackQuantity
+                          ? 'border-slate-800/80 bg-slate-900/50 text-slate-500 cursor-not-allowed'
+                          : 'border-slate-700 text-white'
+                      }`}
                     />
                   </div>
                 </div>
@@ -2455,7 +2507,9 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Spares On Board (Count)</label>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      {trackQuantity ? 'Spares On Board (Count)' : 'Spares On Board (Optional)'}
+                    </label>
                     <input
                       type="number"
                       step="1"
@@ -2469,9 +2523,15 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                     <input
                       type="number"
                       step="1"
-                      value={minQty}
+                      disabled={!trackQuantity}
+                      value={trackQuantity ? minQty : ''}
+                      placeholder={trackQuantity ? '1' : 'Untracked'}
                       onChange={(e) => setMinQty(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
+                      className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-sm font-mono ${
+                        !trackQuantity
+                          ? 'border-slate-800/80 bg-slate-900/50 text-slate-500 cursor-not-allowed'
+                          : 'border-slate-700 text-white'
+                      }`}
                     />
                   </div>
                 </div>

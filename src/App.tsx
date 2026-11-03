@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   AlertTriangle,
+  BookOpen,
   Camera,
   Cloud,
   Database,
@@ -28,7 +29,7 @@ import {
   SyncStatusReport,
   vesselNameToBoatSyncId,
 } from './db/supabaseSync';
-import { calculateFuelStats, compressImageFile, evaluateSchedule } from './utils/vendors';
+import { compressImageFile, evaluateSchedule } from './utils/vendors';
 import { ALL_INSIGNIAS, isBadgeLogoInsignia, renderVesselInsignia } from './utils/insignias';
 import { IS_DEMO_MODE } from './utils/demoMode';
 import { MaintenanceView } from './components/MaintenanceView';
@@ -46,6 +47,7 @@ export const App: React.FC = () => {
   const [nightMode, setNightMode] = useState(false);
   const [showEngineHoursModal, setShowEngineHoursModal] = useState(false);
   const [showInsigniaModal, setShowInsigniaModal] = useState(false);
+  const [showManualsModal, setShowManualsModal] = useState(false);
   const [highlightedPartId, setHighlightedPartId] = useState<string | null>(null);
 
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseSyncConfig>(() =>
@@ -231,8 +233,9 @@ export const App: React.FC = () => {
   );
   const overdueCount = evaluatedSchedules.filter((e) => e.status === 'overdue').length;
   const dueSoonCount = evaluatedSchedules.filter((e) => e.status === 'due-soon').length;
-  const lowSparesCount = db.parts.filter((p) => p.quantityOnBoard < p.minQuantity).length;
-  const fuelStats = calculateFuelStats(db.fuelLogs, db.vessel);
+  const lowSparesCount = db.parts.filter(
+    (p) => p.trackQuantity !== false && p.quantityOnBoard < p.minQuantity
+  ).length;
   const hasUnderwayPassage = (db.sailTrips || []).some((t) => t.status === 'underway');
   const isWallpaperActive = Boolean(
     db.vessel.wallpaperEnabled && db.vessel.wallpaperUrl
@@ -403,14 +406,19 @@ export const App: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('fuel')}
-            className="text-left p-2 sm:p-2.5 rounded-xl border bg-slate-900 border-slate-800 transition hover:border-slate-700"
+            onClick={() => {
+              setActiveTab('maintenance');
+              setShowManualsModal(true);
+            }}
+            className="text-left p-2 sm:p-2.5 rounded-xl border bg-slate-900 border-slate-800 transition hover:border-indigo-500/50 hover:bg-slate-900/90 group"
+            title="Open Equipment Manuals & Schematics Locker"
           >
-            <div className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-slate-400 truncate">
-              {db.vessel.fuelType === 'gasoline' ? 'Est. Gas Tank' : 'Est. Diesel Tank'}
+            <div className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-indigo-300 truncate flex items-center gap-1">
+              <BookOpen className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-400 shrink-0" />
+              <span>Service Manuals</span>
             </div>
-            <div className="text-[11px] sm:text-xs font-bold mt-0.5 text-sky-400 font-mono truncate">
-              {fuelStats.estimatedGallonsRemaining}g ({fuelStats.estimatedTankPercent}%)
+            <div className="text-[11px] sm:text-xs font-bold mt-0.5 text-indigo-200 truncate flex items-center gap-1">
+              <span>{(db.manuals || []).length} PDF Manuals</span>
             </div>
           </button>
 
@@ -441,6 +449,8 @@ export const App: React.FC = () => {
             db={db}
             onUpdateDb={handleUpdateDb}
             onJumpToPart={handleJumpToPart}
+            showManualsModalSignal={showManualsModal}
+            onCloseManualsModal={() => setShowManualsModal(false)}
           />
         )}
 

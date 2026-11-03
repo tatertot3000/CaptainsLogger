@@ -427,7 +427,8 @@ export const FuelLogView: React.FC<FuelLogViewProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {fuelConsumables.map((item) => {
               const totals = getConsumableTotals(item);
-              const isLow = totals.totalRemaining <= item.minQuantity;
+              const isTracked = item.trackQuantity !== false;
+              const isLow = isTracked && totals.totalRemaining <= item.minQuantity;
               const pct = totals.fillPercent;
               return (
                 <button
@@ -793,7 +794,8 @@ export const FuelLogView: React.FC<FuelLogViewProps> = ({
                     fuelConsumables.map((item) => {
                       const isChecked = selectedAdditives[item.id] !== undefined;
                       const unit = item.unit || 'oz';
-                      const isLow = item.quantityOnBoard <= item.minQuantity;
+                      const isTracked = item.trackQuantity !== false;
+                      const isLow = isTracked && item.quantityOnBoard <= item.minQuantity;
 
                       return (
                         <div
@@ -816,12 +818,18 @@ export const FuelLogView: React.FC<FuelLogViewProps> = ({
                               <div className="font-semibold leading-tight">{item.name}</div>
                               <div className="text-[10px] text-slate-400 flex items-center gap-1.5 mt-0.5">
                                 <span>
-                                  On board:{' '}
-                                  <strong
-                                    className={isLow ? 'text-rose-400' : 'text-emerald-400'}
-                                  >
-                                    {item.quantityOnBoard} {unit}
-                                  </strong>
+                                  {isTracked ? (
+                                    <>
+                                      On board:{' '}
+                                      <strong
+                                        className={isLow ? 'text-rose-400' : 'text-emerald-400'}
+                                      >
+                                        {item.quantityOnBoard} {unit}
+                                      </strong>
+                                    </>
+                                  ) : (
+                                    <span className="text-slate-400">Untracked reference</span>
+                                  )}
                                 </span>
                                 {item.dosageHint && <span>• {item.dosageHint}</span>}
                               </div>
@@ -844,6 +852,7 @@ export const FuelLogView: React.FC<FuelLogViewProps> = ({
                         </div>
 
                         {isChecked &&
+                          isTracked &&
                           parseFloat(selectedAdditives[item.id] || '0') > item.quantityOnBoard && (
                             <div className="text-[10px] text-amber-300 flex items-center gap-1 mt-1">
                               <AlertTriangle className="w-3 h-3" />

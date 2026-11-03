@@ -49,6 +49,7 @@ export interface PartItem {
   id: string;
   name: string;
   itemType?: InventoryItemType; // 'part' (discrete) or 'consumable' (measured fluid/additive)
+  trackQuantity?: boolean; // When false, item is catalog reference only and excluded from low-stock checks
   unit?: string; // e.g., 'each', 'oz', 'liters', 'quarts', 'gal'
   containerSize?: number; // default/standard container size (e.g., 16 for a 16 oz bottle)
   containers?: ConsumableContainer[]; // individual bottles/containers grouped under this consumable card
