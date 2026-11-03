@@ -1526,7 +1526,7 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
           Designed &amp; Developed by <strong className="text-white">Eddie Fiorelli</strong>
         </p>
         <p className="text-[11px] text-slate-400">
-          © 2026 Eddie Fiorelli. All rights reserved.
+          © 2026 Eddie Fiorelli. Licensed under GNU GPLv3.
         </p>
         <div className="pt-1 flex items-center justify-center gap-3 text-xs">
           <a
@@ -1553,7 +1553,7 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
             Offline Nautical PWA
           </span>
           <span>•</span>
-          <span>Proprietary Software</span>
+          <span>Open Source (GPL-3.0)</span>
         </div>
       </div>
     </div>

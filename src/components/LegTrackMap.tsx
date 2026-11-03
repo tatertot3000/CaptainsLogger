@@ -70,6 +70,8 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
   const baseLayerRef = useRef<L.TileLayer | null>(null);
   const seaMapLayerRef = useRef<L.TileLayer | null>(null);
   const vectorsLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const liveLayerGroupRef = useRef<L.LayerGroup | null>(null);
+  const hasInitialFitRef = useRef<boolean>(false);
 
   const [activeLayer, setActiveLayer] = useState<MapLayerType>('osm');
   const [showSeaMarks, setShowSeaMarks] = useState(true);
@@ -128,6 +130,7 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
 
       mapInstanceRef.current = map;
       vectorsLayerGroupRef.current = L.layerGroup().addTo(map);
+      liveLayerGroupRef.current = L.layerGroup().addTo(map);
     }
 
     const map = mapInstanceRef.current;
@@ -357,6 +360,24 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
       }
     });
 
+    if (bounds.isValid()) {
+      map.fitBounds(bounds, {
+        padding: [30, 30],
+        maxZoom: 14,
+      });
+      hasInitialFitRef.current = true;
+    }
+  }, [legs]);
+
+  // Update live vessel marker and live breadcrumb track without resetting static legs or camera zoom
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const liveGroup = liveLayerGroupRef.current;
+    if (!map || !liveGroup) return;
+
+    liveGroup.clearLayers();
+    const bounds = L.latLngBounds([]);
+
     // Render live track points if underway
     if (liveTrackPoints && liveTrackPoints.length >= 2) {
       const livePoints: L.LatLngTuple[] = liveTrackPoints.map((pt) => [pt.lat, pt.lon]);
@@ -374,8 +395,8 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
         opacity: 1,
         lineCap: 'round',
       });
-      layerGroup.addLayer(liveGlow);
-      layerGroup.addLayer(liveLine);
+      liveGroup.addLayer(liveGlow);
+      liveGroup.addLayer(liveLine);
     }
 
     // Render live vessel icon at current active fix
@@ -445,17 +466,18 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
           </div>
         </div>
       `);
-      layerGroup.addLayer(vesselMarker);
+      liveGroup.addLayer(vesselMarker);
     }
 
-    // Auto-fit bounds
-    if (bounds.isValid()) {
+    // Only auto-fit bounds on first live fix if no static leg bounds were fitted yet
+    if (!hasInitialFitRef.current && bounds.isValid()) {
       map.fitBounds(bounds, {
         padding: [30, 30],
         maxZoom: 14,
       });
+      hasInitialFitRef.current = true;
     }
-  }, [legs, activeVesselFix, liveTrackPoints]);
+  }, [activeVesselFix, liveTrackPoints]);
 
   return (
     <div

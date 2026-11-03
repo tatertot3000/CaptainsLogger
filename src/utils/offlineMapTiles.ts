@@ -2,6 +2,18 @@ import L from 'leaflet';
 
 export const OFFLINE_TILE_CACHE_NAME = 'captains_logger_offline_tiles_v1';
 
+let cachedTileStoragePromise: Promise<Cache> | null = null;
+
+function getTileCache(): Promise<Cache> {
+  if (!cachedTileStoragePromise) {
+    cachedTileStoragePromise = caches.open(OFFLINE_TILE_CACHE_NAME).catch((err) => {
+      cachedTileStoragePromise = null;
+      throw err;
+    });
+  }
+  return cachedTileStoragePromise;
+}
+
 export interface TileCoordinate {
   x: number;
   y: number;
@@ -117,7 +129,7 @@ export async function getOfflineCacheStats(): Promise<{
   }
 
   try {
-    const cache = await caches.open(OFFLINE_TILE_CACHE_NAME);
+    const cache = await getTileCache();
     const keys = await cache.keys();
     let totalBytes = 0;
 
@@ -155,6 +167,7 @@ export async function getOfflineCacheStats(): Promise<{
 export async function clearOfflineTileCache(): Promise<void> {
   if (typeof caches === 'undefined') return;
   try {
+    cachedTileStoragePromise = null;
     await caches.delete(OFFLINE_TILE_CACHE_NAME);
   } catch (err) {
     console.warn('Failed to clear tile cache:', err);
@@ -185,7 +198,7 @@ export async function downloadTilePack(options: DownloadPackOptions): Promise<{
   }
 
   const { tiles } = calculateTilePack(centerLat, centerLon, radiusNm, minZoom, maxZoom);
-  const cache = await caches.open(OFFLINE_TILE_CACHE_NAME);
+  const cache = await getTileCache();
 
   const urlsToDownload: string[] = [];
   tiles.forEach((t) => {
@@ -291,8 +304,7 @@ export function createOfflineTileLayer(
       const url = (this as any).getTileUrl(coords);
 
       if (typeof caches !== 'undefined') {
-        caches
-          .open(OFFLINE_TILE_CACHE_NAME)
+        getTileCache()
           .then((cache) => {
             return cache.match(url).then((response) => {
               if (response) {
@@ -309,7 +321,7 @@ export function createOfflineTileLayer(
                   tile.src = objectUrl;
                 });
               } else {
-                // Not in cache: fetch from network and opportunistically save to cache
+                // Not in cache: fetch once from network, store in cache, and render
                 (this as any)._loadFromNetwork(tile, url, cache, done);
               }
             });
@@ -332,30 +344,44 @@ export function createOfflineTileLayer(
       cache: Cache | null,
       done: (error: any, tile: HTMLImageElement) => void
     ) {
-      tile.onload = () => {
-        // Opportunistic passive caching: save tile when user browses while online
-        if (cache && typeof fetch !== 'undefined') {
-          fetch(url, { mode: 'cors' })
-            .then((res) => {
-              if (res.ok) cache.put(url, res);
-            })
-            .catch(() => {
-              // Ignore network caching errors
-            });
-        }
-        done(null, tile);
+      const fallbackDirectImg = () => {
+        tile.onload = () => done(null, tile);
+        tile.onerror = () => {
+          tile.style.visibility = 'hidden';
+          done(null, tile);
+        };
+        tile.src = url;
       };
 
-      tile.onerror = () => {
-        // Hide broken image outline when offline and tile not yet cached
-        tile.style.visibility = 'hidden';
-        done(null, tile);
-      };
-
-      tile.src = url;
+      // Fetch once via CORS, put into CacheStorage, and render from Blob to avoid double-fetching tiles
+      if (cache && typeof fetch !== 'undefined') {
+        fetch(url, { mode: 'cors' })
+          .then(async (res) => {
+            if (!res.ok) {
+              fallbackDirectImg();
+              return;
+            }
+            cache.put(url, res.clone()).catch(() => {});
+            const blob = await res.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            tile.onload = () => {
+              URL.revokeObjectURL(objectUrl);
+              done(null, tile);
+            };
+            tile.onerror = () => {
+              URL.revokeObjectURL(objectUrl);
+              fallbackDirectImg();
+            };
+            tile.src = objectUrl;
+          })
+          .catch(() => {
+            fallbackDirectImg();
+          });
+      } else {
+        fallbackDirectImg();
+      }
     },
   });
 
   return new OfflineLayer(urlTemplate, options);
 }
-

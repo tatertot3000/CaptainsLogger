@@ -31,32 +31,25 @@ export interface CompletedLegSummary {
   trackPoints?: GpsFix[];
 }
 
-export function useGpsAutoLeg() {
-  const [activeLeg, setActiveLeg] = useState<ActiveAutoLeg | null>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        return JSON.parse(saved) as ActiveAutoLeg;
-      }
-    } catch (e) {
-      console.warn('Failed to parse active autoleg from localStorage:', e);
+function loadSavedAutoLeg(): ActiveAutoLeg | null {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      return JSON.parse(saved) as ActiveAutoLeg;
     }
-    return null;
-  });
+  } catch (e) {
+    console.warn('Failed to parse active autoleg from localStorage:', e);
+  }
+  return null;
+}
+
+export function useGpsAutoLeg() {
+  const [activeLeg, setActiveLeg] = useState<ActiveAutoLeg | null>(() => loadSavedAutoLeg());
 
   const [currentFix, setCurrentFix] = useState<GpsFix | null>(null);
-  const [trackingStatus, setTrackingStatus] = useState<GpsTrackingStatus>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved) as ActiveAutoLeg;
-        return parsed.isPaused ? 'paused' : 'tracking';
-      }
-    } catch {
-      // ignore
-    }
-    return 'idle';
-  });
+  const [trackingStatus, setTrackingStatus] = useState<GpsTrackingStatus>(() =>
+    activeLeg ? (activeLeg.isPaused ? 'paused' : 'tracking') : 'idle'
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isWakeLockActive, setIsWakeLockActive] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -124,9 +117,12 @@ export function useGpsAutoLeg() {
     };
   }, [requestWakeLock]);
 
-  // Compute live elapsed time tick
+  // Compute live elapsed time tick (only ticks while active and unpaused)
+  const hasActiveLeg = Boolean(activeLeg);
+  const isLegPaused = Boolean(activeLeg?.isPaused);
+
   useEffect(() => {
-    if (!activeLeg) {
+    if (!hasActiveLeg) {
       setElapsedSeconds(0);
       return;
     }
@@ -147,9 +143,11 @@ export function useGpsAutoLeg() {
     };
 
     updateTimer();
+    if (isLegPaused) return;
+
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [activeLeg]);
+  }, [hasActiveLeg, isLegPaused]);
 
   // Explicitly check or request GPS permissions (native Android dialog or browser query)
   const requestGpsPermission = useCallback(async (): Promise<boolean> => {
@@ -336,6 +334,15 @@ export function useGpsAutoLeg() {
 
           const nextDistanceNm = Number((currentLeg.distanceNm + deltaNm).toFixed(2));
           const nextMaxSpeed = Math.max(currentLeg.maxSpeedKts || 0, currentSpeedKts);
+
+          // Avoid redundant state updates & localStorage JSON serialization when nothing changed
+          if (
+            !shouldRecordFix &&
+            nextDistanceNm === currentLeg.distanceNm &&
+            nextMaxSpeed === (currentLeg.maxSpeedKts || 0)
+          ) {
+            return;
+          }
 
           let nextFixes = currentLeg.fixes;
           if (shouldRecordFix) {

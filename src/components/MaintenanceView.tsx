@@ -388,25 +388,43 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
     setShowNewScheduleModal(true);
   };
 
-  const evaluated = db.schedules
-    .map((s) => evaluateSchedule(s, db.vessel.currentEngineHours))
-    .sort((a, b) => {
-      const rank = { overdue: 0, 'due-soon': 1, good: 2, 'as-needed': 3 };
-      if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
-      return b.progressPercent - a.progressPercent;
-    });
+  const evaluated = useMemo(
+    () =>
+      db.schedules
+        .map((s) => evaluateSchedule(s, db.vessel.currentEngineHours))
+        .sort((a, b) => {
+          const rank = { overdue: 0, 'due-soon': 1, good: 2, 'as-needed': 3 };
+          if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
+          return b.progressPercent - a.progressPercent;
+        }),
+    [db.schedules, db.vessel.currentEngineHours]
+  );
 
-  // Check if a task is cleared from the Maintenance Tasks pane (cancelled, or completed as-needed)
-  const isTaskClearedFromMaintenance = (s: MaintenanceSchedule, status: ScheduleStatus) => {
-    const scheduleLogs = db.serviceLogs
-      .filter((l) => l.scheduleId === s.id)
-      .slice()
-      .sort((a, b) => {
+  // Pre-index service logs by scheduleId so task status checks are O(1) instead of O(L log L) per schedule
+  const logsByScheduleId = useMemo(() => {
+    const map = new Map<string, ServiceLogEntry[]>();
+    for (const log of db.serviceLogs) {
+      if (!log.scheduleId) continue;
+      let list = map.get(log.scheduleId);
+      if (!list) {
+        list = [];
+        map.set(log.scheduleId, list);
+      }
+      list.push(log);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => {
         const dateDiff = b.date.localeCompare(a.date);
         if (dateDiff !== 0) return dateDiff;
         return b.id.localeCompare(a.id);
       });
+    }
+    return map;
+  }, [db.serviceLogs]);
 
+  // Check if a task is cleared from the Maintenance Tasks pane (cancelled, or completed as-needed)
+  const isTaskClearedFromMaintenance = (s: MaintenanceSchedule, status: ScheduleStatus) => {
+    const scheduleLogs = logsByScheduleId.get(s.id) || [];
     // 1. Any task whose most recent service log entry is 'cancelled' is cleared from Maintenance Tasks
     if (scheduleLogs.length > 0 && scheduleLogs[0].status === 'cancelled') {
       return true;
@@ -1371,15 +1389,6 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
             </div>
 
             <div className="flex items-center gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => setShowManualsModal(true)}
-                className="bg-indigo-600/20 hover:bg-indigo-600/35 border border-indigo-500/40 px-2.5 py-1.5 rounded-lg text-indigo-200 font-bold flex items-center gap-1.5 transition cursor-pointer shadow-sm"
-                title="Open Equipment Manuals & PDFs Locker"
-              >
-                <BookOpen className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
-                <span>Manuals ({(db.manuals || []).length})</span>
-              </button>
               <span className="bg-slate-950 border border-slate-800 px-2.5 py-1.5 rounded-lg text-slate-300 font-semibold flex items-center gap-1.5">
                 <Wrench className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                 <span>{filteredEvaluated.length} Tasks</span>

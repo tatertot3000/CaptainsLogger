@@ -3,7 +3,7 @@
 An offline-first Progressive Web App (PWA) and Android application designed for cruisers, coastal skippers, and offshore sailors to replace paper logbooks, maintenance binders, fuel logs, and spare parts catalogs.
 
 Designed & Developed by **Eddie Fiorelli**.  
-*Copyright © 2026 Eddie Fiorelli. All rights reserved.*
+*Copyright © 2026 Eddie Fiorelli. Licensed under the GNU General Public License v3.0 (GPL-3.0).*
 
 ---
 
@@ -143,5 +143,7 @@ Have questions, feedback, or feature requests? Reach out directly via GitHub:
 
 ## License & Copyright
 
-**Copyright (c) 2026 Eddie Fiorelli. All rights reserved.**  
-This source code and application are the proprietary property of Eddie Fiorelli. See the [`LICENSE`](./LICENSE) file for details.
+**Copyright (C) 2026 Eddie Fiorelli.**  
+This program is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License v3.0 (GPL-3.0)** as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but **WITHOUT ANY WARRANTY**; without even the implied warranty of **MERCHANTABILITY** or **FITNESS FOR A PARTICULAR PURPOSE**. See the [`LICENSE`](./LICENSE) file for the full license text.

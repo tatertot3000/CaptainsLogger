@@ -824,6 +824,17 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
       }
 
       return true;
+    }).sort((a, b) => {
+      // Prioritize active underway voyages at the top
+      if (a.status === 'underway' && b.status !== 'underway') return -1;
+      if (b.status === 'underway' && a.status !== 'underway') return 1;
+
+      // Sort descending by date (newest to oldest)
+      const dateA = a.startDate || a.endDate || '';
+      const dateB = b.startDate || b.endDate || '';
+      const dateDiff = dateB.localeCompare(dateA);
+      if (dateDiff !== 0) return dateDiff;
+      return b.id.localeCompare(a.id);
     });
   }, [trips, statusFilter, searchQuery]);
 
@@ -1533,7 +1544,17 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {trip.legs.map((leg) => {
+                        {[...(trip.legs || [])]
+                          .sort((a, b) => {
+                            const timeA = a.departureTime || '';
+                            const timeB = b.departureTime || '';
+                            if (timeA && timeB) {
+                              const diff = timeB.localeCompare(timeA);
+                              if (diff !== 0) return diff;
+                            }
+                            return (b.legNumber || 0) - (a.legNumber || 0);
+                          })
+                          .map((leg) => {
                           const isLegExpanded = !!expandedLegIds[leg.id];
                           const hasExtraDetails =
                             (leg.crew && leg.crew.length > 0) ||

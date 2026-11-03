@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   BookOpen,
@@ -228,16 +228,31 @@ export const App: React.FC = () => {
     void syncAllLayers(db, newConfig, 'auto');
   };
 
-  const evaluatedSchedules = db.schedules.map((s) =>
-    evaluateSchedule(s, db.vessel.currentEngineHours)
+  const { overdueCount, dueSoonCount } = useMemo(() => {
+    let overdue = 0;
+    let dueSoon = 0;
+    for (const s of db.schedules) {
+      const ev = evaluateSchedule(s, db.vessel.currentEngineHours);
+      if (ev.status === 'overdue') overdue++;
+      else if (ev.status === 'due-soon') dueSoon++;
+    }
+    return { overdueCount: overdue, dueSoonCount: dueSoon };
+  }, [db.schedules, db.vessel.currentEngineHours]);
+  const lowSparesCount = useMemo(
+    () =>
+      db.parts.filter(
+        (p) => p.trackQuantity !== false && p.quantityOnBoard < p.minQuantity
+      ).length,
+    [db.parts]
   );
-  const overdueCount = evaluatedSchedules.filter((e) => e.status === 'overdue').length;
-  const dueSoonCount = evaluatedSchedules.filter((e) => e.status === 'due-soon').length;
-  const lowSparesCount = db.parts.filter(
-    (p) => p.trackQuantity !== false && p.quantityOnBoard < p.minQuantity
-  ).length;
-  const fuelStats = calculateFuelStats(db.fuelLogs, db.vessel);
-  const hasUnderwayPassage = (db.sailTrips || []).some((t) => t.status === 'underway');
+  const fuelStats = useMemo(
+    () => calculateFuelStats(db.fuelLogs, db.vessel),
+    [db.fuelLogs, db.vessel]
+  );
+  const hasUnderwayPassage = useMemo(
+    () => (db.sailTrips || []).some((t) => t.status === 'underway'),
+    [db.sailTrips]
+  );
   const isWallpaperActive = Boolean(
     db.vessel.wallpaperEnabled && db.vessel.wallpaperUrl
   );

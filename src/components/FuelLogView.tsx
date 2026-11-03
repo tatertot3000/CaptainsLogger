@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ChevronDown,
@@ -68,7 +68,10 @@ export const FuelLogView: React.FC<FuelLogViewProps> = ({
     setExpandedFuelLogIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const stats = calculateFuelStats(db.fuelLogs, db.vessel);
+  const stats = useMemo(
+    () => calculateFuelStats(db.fuelLogs, db.vessel),
+    [db.fuelLogs, db.vessel]
+  );
 
   // Only items that are both consumable and Fuel should show up during fuel entry
   const isEngineFuel = (cat?: string) => {

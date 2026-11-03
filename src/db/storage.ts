@@ -913,11 +913,12 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
     changed = true;
   }
 
-  const sampleDb = getInitialSampleDatabase();
+  let sampleDbCache: CaptainsDatabase | null = null;
+  const getSampleDb = () => (sampleDbCache ??= getInitialSampleDatabase());
   let sailTrips = [...(db.sailTrips || [])];
 
   if (sailTrips.length === 0) {
-    sailTrips = sampleDb.sailTrips || [];
+    sailTrips = getSampleDb().sailTrips || [];
     changed = true;
   } else {
     // Enrich sample legs with GPS coordinates if missing
@@ -926,7 +927,7 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
         const updatedLegs = (trip.legs || []).map((leg) => {
           if (leg.id === 'leg-sample-1' && (!leg.departureCoordinates || !leg.trackPoints)) {
             changed = true;
-            const sampleLeg1 = sampleDb.sailTrips?.[0]?.legs?.find((l) => l.id === 'leg-sample-1');
+            const sampleLeg1 = getSampleDb().sailTrips?.[0]?.legs?.find((l) => l.id === 'leg-sample-1');
             return {
               ...leg,
               departureCoordinates: { lat: 48.5173, lon: -122.6045 },
@@ -938,7 +939,7 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
           }
           if (leg.id === 'leg-sample-2' && (!leg.departureCoordinates || !leg.trackPoints)) {
             changed = true;
-            const sampleLeg2 = sampleDb.sailTrips?.[0]?.legs?.find((l) => l.id === 'leg-sample-2');
+            const sampleLeg2 = getSampleDb().sailTrips?.[0]?.legs?.find((l) => l.id === 'leg-sample-2');
             return {
               ...leg,
               departureCoordinates: { lat: 48.6472, lon: -122.8717 },
@@ -965,7 +966,7 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
     } else {
       // In demo mode, ensure sample underway trip is present
       if (!sailTrips.some((t: SailTrip) => t.id === 'trip-sample-2')) {
-        const sampleTrip2 = (sampleDb.sailTrips || []).find((t: SailTrip) => t.id === 'trip-sample-2');
+        const sampleTrip2 = (getSampleDb().sailTrips || []).find((t: SailTrip) => t.id === 'trip-sample-2');
         if (sampleTrip2) {
           sailTrips = [sampleTrip2, ...sailTrips];
           changed = true;
@@ -993,24 +994,44 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
   };
 }
 
+let cachedIdbPromise: Promise<IDBDatabase> | null = null;
+
+function getSnapshotsIdb(): Promise<IDBDatabase> {
+  if (!cachedIdbPromise) {
+    cachedIdbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+      const request = window.indexedDB.open(IDB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const idb = request.result;
+        if (!idb.objectStoreNames.contains(IDB_STORE)) {
+          idb.createObjectStore(IDB_STORE);
+        }
+      };
+      request.onsuccess = () => {
+        const idb = request.result;
+        idb.onclose = () => {
+          cachedIdbPromise = null;
+        };
+        resolve(idb);
+      };
+      request.onerror = () => {
+        cachedIdbPromise = null;
+        reject(request.error);
+      };
+    });
+  }
+  return cachedIdbPromise;
+}
+
 function saveToIndexedDB(db: CaptainsDatabase): void {
   if (typeof window === 'undefined' || !('indexedDB' in window)) return;
-  try {
-    const request = window.indexedDB.open(IDB_NAME, 1);
-    request.onupgradeneeded = () => {
-      const idb = request.result;
-      if (!idb.objectStoreNames.contains(IDB_STORE)) {
-        idb.createObjectStore(IDB_STORE);
-      }
-    };
-    request.onsuccess = () => {
-      const idb = request.result;
+  getSnapshotsIdb()
+    .then((idb) => {
       const tx = idb.transaction(IDB_STORE, 'readwrite');
       tx.objectStore(IDB_STORE).put(db, 'latest');
-    };
-  } catch {
-    // Ignore IDB errors; localStorage is primary synchronous mirror
-  }
+    })
+    .catch(() => {
+      // Ignore IDB errors; localStorage is primary synchronous mirror
+    });
 }
 
 export function loadDatabase(): CaptainsDatabase {
@@ -1157,12 +1178,13 @@ export function generateFuelCsv(db: CaptainsDatabase): string {
     'Additives & Consumables Used',
     'Notes',
   ];
+  const partsById = new Map(db.parts.map((p) => [p.id, p]));
   const rows = db.fuelLogs.map((f) => {
     const additivesText =
       f.additivesUsed && f.additivesUsed.length > 0
         ? f.additivesUsed
             .map((a) => {
-              const part = db.parts.find((p) => p.id === a.partId);
+              const part = partsById.get(a.partId);
               const name = a.nameSnapshot || part?.name || a.partId;
               const unit = a.unitSnapshot || part?.unit || 'oz';
               return `${name} (${a.quantityNeeded} ${unit})`;
@@ -1196,10 +1218,11 @@ export function generateServiceHistoryCsv(db: CaptainsDatabase): string {
     'Cost ($)',
     'Notes',
   ];
+  const partsById = new Map(db.parts.map((p) => [p.id, p]));
   const rows = db.serviceLogs.map((s) => {
     const partsText = (s.partsUsed || [])
       .map((u) => {
-        const part = db.parts.find((p) => p.id === u.partId);
+        const part = partsById.get(u.partId);
         const name = u.nameSnapshot || part?.name || u.partId;
         const unit = u.unitSnapshot || part?.unit || 'each';
         return `${name} (${u.quantityNeeded} ${unit})`;
