@@ -189,6 +189,32 @@ export interface SailLeg {
   notes?: string;
   anchorageDetails?: string; // e.g. "Anchored in 22ft mud, 110ft chain 5:1 scope"
   photos?: MaintenancePhoto[];
+
+  // GPS AutoLeg Metadata
+  departureCoordinates?: { lat: number; lon: number };
+  arrivalCoordinates?: { lat: number; lon: number };
+  maxSpeedKts?: number;
+  avgSpeedKts?: number;
+}
+
+export interface GpsFix {
+  lat: number;
+  lon: number;
+  timestamp: number; // epoch ms
+  accuracyMeters?: number;
+  speedKts?: number; // SOG
+  headingDeg?: number; // COG (0-360)
+}
+
+export interface ActiveAutoLeg {
+  tripId: string;
+  startTime: string; // ISO datetime
+  isPaused: boolean;
+  pausedAt?: string;
+  totalPausedMs: number;
+  fixes: GpsFix[];
+  distanceNm: number;
+  maxSpeedKts: number;
 }
 
 export interface SailTrip {

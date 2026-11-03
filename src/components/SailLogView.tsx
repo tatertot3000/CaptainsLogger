@@ -23,6 +23,12 @@ import {
   Camera,
   FileText,
   Users,
+  Play,
+  Pause,
+  Flag,
+  Sun,
+  AlertTriangle,
+  Radio,
 } from 'lucide-react';
 import {
   CaptainsDatabase,
@@ -36,6 +42,12 @@ import {
 } from '../types';
 import { compressImageFile } from '../utils/vendors';
 import { IS_DEMO_MODE } from '../utils/demoMode';
+import { useGpsAutoLeg, CompletedLegSummary } from '../hooks/useGpsAutoLeg';
+import {
+  toMarineCoordinates,
+  degreesToCompassWithDegrees,
+  formatElapsedDuration,
+} from '../utils/geo';
 
 interface SailLogViewProps {
   db: CaptainsDatabase;
@@ -60,6 +72,27 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   const [tripNotesVal, setTripNotesVal] = useState('');
   const [tripPhotos, setTripPhotos] = useState<MaintenancePhoto[]>([]);
   const [isUploadingTripPhoto, setIsUploadingTripPhoto] = useState(false);
+
+  // GPS AutoLeg Tracker Hook
+  const {
+    activeLeg,
+    currentFix,
+    errorMessage: gpsErrorMessage,
+    isWakeLockActive,
+    elapsedSeconds,
+    avgSpeedKts,
+    startAutoLeg,
+    pauseAutoLeg,
+    resumeAutoLeg,
+    finishAutoLeg,
+    cancelAutoLeg,
+  } = useGpsAutoLeg();
+
+  // GPS Leg coordinates state for saving with legs
+  const [legDepartureCoords, setLegDepartureCoords] = useState<{ lat: number; lon: number } | undefined>();
+  const [legArrivalCoords, setLegArrivalCoords] = useState<{ lat: number; lon: number } | undefined>();
+  const [legMaxSpeedKts, setLegMaxSpeedKts] = useState<number | undefined>();
+  const [legAvgSpeedKts, setLegAvgSpeedKts] = useState<number | undefined>();
 
   // Expandable trip card state (trips start collapsed/minimized by default)
   const [expandedTripIds, setExpandedTripIds] = useState<Record<string, boolean>>({});
@@ -351,7 +384,72 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     setLegNotes('');
     setLegPhotos([]);
 
+    setLegDepartureCoords(undefined);
+    setLegArrivalCoords(undefined);
+    setLegMaxSpeedKts(undefined);
+    setLegAvgSpeedKts(undefined);
+
     setShowLegModal(true);
+  };
+
+  const openCreateLegModalWithGps = (trip: SailTrip, summary: CompletedLegSummary) => {
+    setActiveTripForLeg(trip);
+    setEditingLeg(null);
+    const prevLeg = trip.legs && trip.legs.length > 0 ? trip.legs[trip.legs.length - 1] : null;
+    const legNum = (trip.legs?.length || 0) + 1;
+    setLegTitle(`Leg ${legNum}`);
+    setLegDeparturePort(prevLeg ? prevLeg.arrivalPort : '');
+    setLegArrivalPort('');
+    setLegDepartureTime(summary.departureTime || getCurrentLocalDateTime());
+    setLegArrivalTime(summary.arrivalTime || getCurrentLocalDateTime());
+    setLegDistanceNm(summary.distanceNm > 0 ? String(summary.distanceNm) : '');
+    setLegPropulsionMode('sail');
+    setLegWindSpeed('');
+    setLegWindGust('');
+    setLegWindDirection('');
+    setLegSeaState('');
+    setLegWeather('');
+    setLegBarometer('');
+    setLegPointOfSail('');
+    setLegSailsUsed('');
+
+    const initialStartHours =
+      prevLeg?.endEngineHours !== undefined
+        ? prevLeg.endEngineHours
+        : db.vessel?.currentEngineHours;
+    setLegStartEngineHours(initialStartHours !== undefined ? String(initialStartHours) : '');
+    setLegEndEngineHours('');
+    setLegStartFuelPercent(
+      prevLeg?.endFuelLevelPercent !== undefined ? String(prevLeg.endFuelLevelPercent) : ''
+    );
+    setLegEndFuelPercent('');
+    setSyncVesselEngineHours(true);
+
+    setLegCrewText(prevLeg?.crew && prevLeg.crew.length > 0 ? prevLeg.crew.join(', ') : '');
+    setLegAnchorageDetails('');
+    setLegNotes(
+      `Logged with GPS AutoLeg: ${summary.distanceNm} NM in ${formatElapsedDuration(summary.elapsedSeconds)}${
+        summary.maxSpeedKts ? `, max SOG ${summary.maxSpeedKts} kts` : ''
+      }${summary.avgSpeedKts ? `, avg ${summary.avgSpeedKts} kts` : ''}.`
+    );
+    setLegPhotos([]);
+
+    setLegDepartureCoords(summary.departureCoordinates);
+    setLegArrivalCoords(summary.arrivalCoordinates);
+    setLegMaxSpeedKts(summary.maxSpeedKts);
+    setLegAvgSpeedKts(summary.avgSpeedKts);
+
+    setShowLegModal(true);
+  };
+
+  const handleFinishAutoLegClick = (targetTripId?: string) => {
+    const tripToFinish = trips.find((t) => t.id === (targetTripId || activeLeg?.tripId));
+    const summary = finishAutoLeg();
+    if (!summary) return;
+
+    if (tripToFinish) {
+      openCreateLegModalWithGps(tripToFinish, summary);
+    }
   };
 
   const openEditLegModal = (trip: SailTrip, leg: SailLeg) => {
@@ -392,6 +490,11 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     setLegAnchorageDetails(leg.anchorageDetails || '');
     setLegNotes(leg.notes || '');
     setLegPhotos(leg.photos ? [...leg.photos] : []);
+
+    setLegDepartureCoords(leg.departureCoordinates);
+    setLegArrivalCoords(leg.arrivalCoordinates);
+    setLegMaxSpeedKts(leg.maxSpeedKts);
+    setLegAvgSpeedKts(leg.avgSpeedKts);
 
     setShowLegModal(true);
   };
@@ -483,6 +586,10 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                   anchorageDetails: legAnchorageDetails.trim() || undefined,
                   notes: legNotes.trim() || undefined,
                   photos: legPhotos.length > 0 ? legPhotos : undefined,
+                  departureCoordinates: legDepartureCoords,
+                  arrivalCoordinates: legArrivalCoords,
+                  maxSpeedKts: legMaxSpeedKts,
+                  avgSpeedKts: legAvgSpeedKts,
                 }
               : l
           );
@@ -516,6 +623,10 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
             anchorageDetails: legAnchorageDetails.trim() || undefined,
             notes: legNotes.trim() || undefined,
             photos: legPhotos.length > 0 ? legPhotos : undefined,
+            departureCoordinates: legDepartureCoords,
+            arrivalCoordinates: legArrivalCoords,
+            maxSpeedKts: legMaxSpeedKts,
+            avgSpeedKts: legAvgSpeedKts,
           };
           return { ...t, legs: [...currentLegs, newLeg] };
         }
@@ -784,6 +895,189 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
           )}
         </div>
       </div>
+
+      {/* Active GPS AutoLeg Cockpit HUD */}
+      {activeLeg && (
+        <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-teal-950/40 border-2 border-teal-500/50 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-4">
+          {/* Header Row: Status, Wake Lock, Actions */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <span
+                className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${
+                  activeLeg.isPaused
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                }`}
+              >
+                <Radio
+                  className={`w-3.5 h-3.5 ${
+                    activeLeg.isPaused ? 'text-amber-400' : 'text-emerald-400 animate-pulse'
+                  }`}
+                />
+                <span>{activeLeg.isPaused ? 'GPS AutoLeg Paused' : 'GPS AutoLeg Underway'}</span>
+              </span>
+
+              <span className="text-xs text-slate-300 font-semibold truncate">
+                for{' '}
+                <span className="text-white font-bold">
+                  {trips.find((t) => t.id === activeLeg.tripId)?.title || 'Active Voyage'}
+                </span>
+              </span>
+
+              {isWakeLockActive && (
+                <span className="hidden sm:inline-flex items-center gap-1 text-[10px] bg-slate-800 text-amber-300 border border-slate-700 px-2 py-0.5 rounded-full font-medium">
+                  <Sun className="w-3 h-3 text-amber-400" /> Screen Kept Awake
+                </span>
+              )}
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+              {activeLeg.isPaused ? (
+                <button
+                  type="button"
+                  onClick={resumeAutoLeg}
+                  className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-lg transition shadow cursor-pointer"
+                  title="Resume tracking position and speed"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Resume</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={pauseAutoLeg}
+                  className="flex items-center gap-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs px-3 py-1.5 rounded-lg transition cursor-pointer"
+                  title="Pause tracking (for anchorage, lunch stop, etc.)"
+                >
+                  <Pause className="w-3.5 h-3.5 fill-current" />
+                  <span>Pause</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => handleFinishAutoLegClick()}
+                className="flex items-center gap-1 bg-teal-500 hover:bg-teal-400 text-slate-950 font-extrabold text-xs px-3.5 py-1.5 rounded-lg transition shadow cursor-pointer"
+                title="Stop GPS tracking and open Leg Logbook to save"
+              >
+                <Flag className="w-3.5 h-3.5 fill-current" />
+                <span>Finish Leg</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'Discard active GPS AutoLeg tracking? Unsaved GPS distance will be lost.'
+                    )
+                  ) {
+                    cancelAutoLeg();
+                  }
+                }}
+                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition cursor-pointer"
+                title="Cancel / Discard AutoLeg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Large High-Contrast Cockpit Gauges */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 text-center">
+            {/* Gauge 1: SOG (Speed Over Ground) */}
+            <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3 sm:p-4 space-y-1">
+              <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-center gap-1">
+                <Gauge className="w-3.5 h-3.5 text-teal-400" />
+                <span>Boat Speed (SOG)</span>
+              </div>
+              <div className="text-3xl sm:text-4xl font-black font-mono text-emerald-400 tracking-tight">
+                {currentFix?.speedKts != null ? currentFix.speedKts.toFixed(1) : '0.0'}{' '}
+                <span className="text-xs sm:text-sm font-semibold text-slate-400">kts</span>
+              </div>
+              <div className="text-[10px] text-slate-400 font-mono">
+                Avg: <strong className="text-slate-200">{avgSpeedKts}</strong> • Max:{' '}
+                <strong className="text-slate-200">{activeLeg.maxSpeedKts || 0}</strong> kts
+              </div>
+            </div>
+
+            {/* Gauge 2: Distance Run */}
+            <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3 sm:p-4 space-y-1">
+              <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-center gap-1">
+                <Navigation className="w-3.5 h-3.5 text-sky-400" />
+                <span>Distance Run</span>
+              </div>
+              <div className="text-3xl sm:text-4xl font-black font-mono text-sky-300 tracking-tight">
+                {activeLeg.distanceNm.toFixed(2)}{' '}
+                <span className="text-xs sm:text-sm font-semibold text-slate-400">NM</span>
+              </div>
+              <div className="text-[10px] text-slate-400 font-mono">
+                {activeLeg.fixes.length} fixes logged
+              </div>
+            </div>
+
+            {/* Gauge 3: Elapsed Time */}
+            <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3 sm:p-4 space-y-1">
+              <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                <span>Elapsed Underway</span>
+              </div>
+              <div className="text-3xl sm:text-4xl font-black font-mono text-amber-300 tracking-tight">
+                {formatElapsedDuration(elapsedSeconds)}
+              </div>
+              <div className="text-[10px] text-slate-400 font-mono">
+                Departed{' '}
+                {new Date(activeLeg.startTime).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </div>
+            </div>
+
+            {/* Gauge 4: Course Over Ground (COG) */}
+            <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-3 sm:p-4 space-y-1">
+              <div className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center justify-center gap-1">
+                <Compass className="w-3.5 h-3.5 text-rose-400" />
+                <span>Course (COG)</span>
+              </div>
+              <div className="text-xl sm:text-2xl font-black font-mono text-rose-300 tracking-tight pt-1 truncate">
+                {currentFix?.headingDeg != null
+                  ? degreesToCompassWithDegrees(currentFix.headingDeg)
+                  : '---'}
+              </div>
+              <div className="text-[10px] text-slate-400 font-mono">True Heading</div>
+            </div>
+          </div>
+
+          {/* Footer Bar: Marine Coordinates & Accuracy */}
+          <div className="flex items-center justify-between gap-2 flex-wrap text-xs pt-1 border-t border-slate-800/80 text-slate-400">
+            <div className="flex items-center gap-1.5 font-mono">
+              <MapPin className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+              <span>
+                {currentFix
+                  ? toMarineCoordinates(currentFix.lat, currentFix.lon)
+                  : 'Acquiring GPS fix...'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              {currentFix?.accuracyMeters != null && (
+                <span className="text-[11px] font-mono text-slate-400">
+                  Fix: <span className="text-emerald-400">±{currentFix.accuracyMeters}m</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {gpsErrorMessage && (
+            <div className="flex items-center gap-2 bg-rose-950/40 border border-rose-500/50 text-rose-300 text-xs px-3 py-2 rounded-xl">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{gpsErrorMessage}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Trips / Voyages List */}
       {filteredTrips.length === 0 ? (
@@ -1064,19 +1358,39 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                     </div>
 
                     {/* Legs Container Header */}
-                    <div className="flex items-center justify-between pt-1">
+                    <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
                       <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                         <Navigation className="w-3.5 h-3.5 text-teal-400" />
                         Passage Legs ({legCount})
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => openCreateLegModal(trip)}
-                        className="flex items-center gap-1 text-[11px] font-bold text-teal-300 bg-teal-950/40 hover:bg-teal-900/50 border border-teal-800/60 rounded-lg px-2.5 py-1 transition cursor-pointer"
-                      >
-                        <Plus className="w-3 h-3 stroke-[3]" />
-                        <span>Add Leg</span>
-                      </button>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {trip.status === 'underway' && (
+                          activeLeg && activeLeg.tripId === trip.id ? (
+                            <span className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-300 bg-emerald-950/60 border border-emerald-500/50 rounded-lg px-2.5 py-1">
+                              <Radio className="w-3 h-3 text-emerald-400 animate-pulse" />
+                              <span>AutoLeg Recording...</span>
+                            </span>
+                          ) : !activeLeg ? (
+                            <button
+                              type="button"
+                              onClick={() => startAutoLeg(trip.id)}
+                              className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-700/60 rounded-lg px-2.5 py-1 transition cursor-pointer"
+                              title="Start tracking speed, distance and time with device GPS"
+                            >
+                              <Radio className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Start GPS AutoLeg</span>
+                            </button>
+                          ) : null
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => openCreateLegModal(trip)}
+                          className="flex items-center gap-1 text-[11px] font-bold text-teal-300 bg-teal-950/40 hover:bg-teal-900/50 border border-teal-800/60 rounded-lg px-2.5 py-1 transition cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3 stroke-[3]" />
+                          <span>Add Leg</span>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Legs Placeholder Container */}
@@ -1104,7 +1418,9 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                             leg.anchorageDetails ||
                             (leg.photos && leg.photos.length > 0) ||
                             leg.pointOfSail ||
-                            leg.sailsUsed;
+                            leg.sailsUsed ||
+                            leg.maxSpeedKts !== undefined ||
+                            Boolean(leg.departureCoordinates);
 
                           return (
                             <div
@@ -1164,6 +1480,12 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                                         <span>{leg.seaState}</span>
                                       </span>
                                     )}
+                                    {leg.maxSpeedKts !== undefined && (
+                                      <span className="flex items-center gap-1 text-teal-300 bg-teal-950/40 px-1.5 py-0.5 rounded border border-teal-800/60 font-mono text-[10px]">
+                                        <Radio className="w-2.5 h-2.5 text-teal-400" />
+                                        <span>Max {leg.maxSpeedKts} kts{leg.avgSpeedKts ? ` • Avg ${leg.avgSpeedKts} kts` : ''}</span>
+                                      </span>
+                                    )}
                                     {leg.engineHoursRun !== undefined && leg.engineHoursRun > 0 && (
                                       <span className="flex items-center gap-1 text-slate-300 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
                                         <Gauge className="w-2.5 h-2.5 text-amber-400" />
@@ -1211,6 +1533,35 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                               {/* Expanded Leg Details */}
                               {isLegExpanded && hasExtraDetails && (
                                 <div className="space-y-2 pt-2 border-t border-slate-800/80 text-xs">
+                                  {/* GPS AutoLeg Telemetry Summary */}
+                                  {(leg.departureCoordinates || leg.arrivalCoordinates || leg.maxSpeedKts !== undefined) && (
+                                    <div className="flex items-start gap-2 text-slate-300 bg-teal-950/30 border border-teal-500/40 rounded-lg p-2.5 text-[11px] font-mono">
+                                      <Radio className="w-3.5 h-3.5 text-teal-400 shrink-0 mt-0.5" />
+                                      <div className="space-y-1">
+                                        <div className="text-teal-300 font-sans font-bold flex items-center gap-1.5 flex-wrap">
+                                          <span>GPS AutoLeg Telemetry Tracked</span>
+                                          {leg.maxSpeedKts !== undefined && (
+                                            <span className="font-mono text-[10px] text-teal-400 font-normal">
+                                              (Max SOG: {leg.maxSpeedKts} kts{leg.avgSpeedKts ? ` • Avg: ${leg.avgSpeedKts} kts` : ''})
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="text-slate-300 flex items-center gap-2 flex-wrap">
+                                          {leg.departureCoordinates && (
+                                            <span>
+                                              Dep: {toMarineCoordinates(leg.departureCoordinates.lat, leg.departureCoordinates.lon)}
+                                            </span>
+                                          )}
+                                          {leg.arrivalCoordinates && (
+                                            <span>
+                                              → Arr: {toMarineCoordinates(leg.arrivalCoordinates.lat, leg.arrivalCoordinates.lon)}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+
                                   {/* Crew manifest */}
                                   {leg.crew && leg.crew.length > 0 && (
                                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -1584,6 +1935,36 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
 
             {/* Scrollable Form Body */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4">
+              {/* GPS AutoLeg Telemetry Banner */}
+              {(legDepartureCoords || legArrivalCoords || legMaxSpeedKts !== undefined) && (
+                <div className="bg-teal-950/40 border border-teal-500/50 rounded-xl p-3 space-y-1.5 text-xs text-teal-200">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="font-bold flex items-center gap-1.5 text-emerald-300">
+                      <Radio className="w-3.5 h-3.5 text-emerald-400" />
+                      GPS AutoLeg Telemetry Recorded
+                    </span>
+                    {legMaxSpeedKts !== undefined && (
+                      <span className="font-mono text-[11px] text-teal-300">
+                        Max Speed: <strong className="text-white">{legMaxSpeedKts} kts</strong>
+                        {legAvgSpeedKts ? ` • Avg: ${legAvgSpeedKts} kts` : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] font-mono text-slate-300 flex items-center gap-2 flex-wrap">
+                    {legDepartureCoords && (
+                      <span>
+                        Dep: {toMarineCoordinates(legDepartureCoords.lat, legDepartureCoords.lon)}
+                      </span>
+                    )}
+                    {legArrivalCoords && (
+                      <span>
+                        → Arr: {toMarineCoordinates(legArrivalCoords.lat, legArrivalCoords.lon)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Leg Title (Optional) */}
             <div>
               <label className="block text-xs text-slate-400 mb-1 font-semibold">

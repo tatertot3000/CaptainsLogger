@@ -1,7 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { CaptainsDatabase, PartItem, MaintenanceSchedule, VesselManual } from '../types';
+import { CaptainsDatabase, PartItem, MaintenanceSchedule, VesselManual, SailTrip } from '../types';
 import { IS_DEMO_MODE } from '../utils/demoMode';
 
 const STORAGE_KEY = 'captains_logger_snapshot_v1';
@@ -663,6 +663,10 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
             crew: ['Sarah M.', 'Dave K.'],
             notes: 'Strong ebb current through Guemes Channel. Motor-sailed until clearing Thatcher Pass, then had a fantastic beam reach up East Sound. Orcas spotted near Peavine Pass.',
             anchorageDetails: 'Moored at Rosario Resort Marina slip C-14.',
+            departureCoordinates: { lat: 48.5173, lon: -122.6045 },
+            arrivalCoordinates: { lat: 48.6472, lon: -122.8717 },
+            maxSpeedKts: 7.8,
+            avgSpeedKts: 4.4,
             photos: [
               {
                 id: 'photo-leg-sample-1',
@@ -699,6 +703,10 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
             crew: ['Sarah M.', 'Dave K.'],
             notes: 'Only motored for 0.5h out of Rosario and into Friday Harbor marina. Broad reach sailing all the way across. Mooring ball at Friday Harbor.',
             anchorageDetails: 'Friday Harbor Marina mooring ball #8.',
+            departureCoordinates: { lat: 48.6472, lon: -122.8717 },
+            arrivalCoordinates: { lat: 48.5361, lon: -123.0139 },
+            maxSpeedKts: 8.2,
+            avgSpeedKts: 4.4,
             photos: [
               {
                 id: 'photo-leg-sample-2',
@@ -707,6 +715,48 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
                 addedAt: '2026-08-16',
               },
             ],
+          },
+        ],
+      },
+      {
+        id: 'trip-sample-2',
+        title: 'Bellingham Bay to Sucia Island Passage',
+        startDate: '2026-10-31',
+        status: 'underway',
+        captain: 'Capt. Jack',
+        tripNotes: 'Heading out from Squalicum Harbor through Hale Passage towards Sucia Island Marine Park.',
+        legs: [
+          {
+            id: 'leg-sample-3',
+            tripId: 'trip-sample-2',
+            legNumber: 1,
+            title: 'Squalicum Harbor to Inati Bay (Lummi Island)',
+            departurePort: 'Squalicum Harbor, Bellingham',
+            arrivalPort: 'Inati Bay, Lummi Island',
+            departureTime: '2026-10-31T08:00',
+            arrivalTime: '2026-10-31T10:15',
+            distanceNm: 9.4,
+            propulsionMode: 'sail',
+            startEngineHours: 1441.5,
+            endEngineHours: 1442.0,
+            startFuelLevelPercent: 86,
+            endFuelLevelPercent: 84,
+            windSpeedKts: 12,
+            windGustKts: 15,
+            windDirection: 'NW',
+            seaState: 'calm',
+            weather: 'clear',
+            pointOfSail: 'Close Hauled',
+            sailsUsed: 'Full Main & 110% Genoa',
+            barometerHpa: 1022,
+            captain: 'Capt. Jack',
+            crew: ['Sarah M.'],
+            notes: 'Gorgeous morning sail across Bellingham Bay with brisk morning breeze off Chuckanut Mountain. Anchored for lunch in Inati Bay.',
+            anchorageDetails: 'Anchored in 25ft mud, 4:1 scope.',
+            departureCoordinates: { lat: 48.7561, lon: -122.5083 },
+            arrivalCoordinates: { lat: 48.6756, lon: -122.6158 },
+            maxSpeedKts: 6.9,
+            avgSpeedKts: 4.2,
           },
         ],
       },
@@ -829,17 +879,64 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
     changed = true;
   }
 
-  const sailTrips = db.sailTrips || [];
+  const sampleDb = getInitialSampleDatabase();
+  let sailTrips = [...(db.sailTrips || [])];
+
+  if (sailTrips.length === 0) {
+    sailTrips = sampleDb.sailTrips || [];
+    changed = true;
+  } else {
+    // Enrich sample legs with GPS coordinates if missing
+    sailTrips = sailTrips.map((trip) => {
+      if (trip.id === 'trip-sample-1') {
+        const updatedLegs = (trip.legs || []).map((leg) => {
+          if (leg.id === 'leg-sample-1' && !leg.departureCoordinates) {
+            changed = true;
+            return {
+              ...leg,
+              departureCoordinates: { lat: 48.5173, lon: -122.6045 },
+              arrivalCoordinates: { lat: 48.6472, lon: -122.8717 },
+              maxSpeedKts: 7.8,
+              avgSpeedKts: 4.4,
+            };
+          }
+          if (leg.id === 'leg-sample-2' && !leg.departureCoordinates) {
+            changed = true;
+            return {
+              ...leg,
+              departureCoordinates: { lat: 48.6472, lon: -122.8717 },
+              arrivalCoordinates: { lat: 48.5361, lon: -123.0139 },
+              maxSpeedKts: 8.2,
+              avgSpeedKts: 4.4,
+            };
+          }
+          return leg;
+        });
+        return { ...trip, legs: updatedLegs };
+      }
+      return trip;
+    });
+
+    // If sample underway trip is missing, add it to demo
+    if (!sailTrips.some((t: SailTrip) => t.id === 'trip-sample-2')) {
+      const sampleTrip2 = (sampleDb.sailTrips || []).find((t: SailTrip) => t.id === 'trip-sample-2');
+      if (sampleTrip2) {
+        sailTrips = [sampleTrip2, ...sailTrips];
+        changed = true;
+      }
+    }
+  }
+
   const manuals = Array.isArray(db.manuals) ? db.manuals : DEFAULT_SAMPLE_MANUALS;
   if (!db.manuals) {
     changed = true;
   }
 
-  if (!changed && db.version >= 4 && db.sailTrips && db.manuals) return db;
+  if (!changed && db.version >= 5 && db.sailTrips && db.manuals) return db;
 
   return {
     ...db,
-    version: 4,
+    version: 5,
     parts,
     schedules,
     customCategories,
