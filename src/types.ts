@@ -195,6 +195,7 @@ export interface SailLeg {
   arrivalCoordinates?: { lat: number; lon: number };
   maxSpeedKts?: number;
   avgSpeedKts?: number;
+  trackPoints?: GpsFix[];
 }
 
 export interface GpsFix {

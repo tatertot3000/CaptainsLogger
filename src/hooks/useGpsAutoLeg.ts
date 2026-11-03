@@ -28,6 +28,7 @@ export interface CompletedLegSummary {
   maxSpeedKts?: number;
   avgSpeedKts?: number;
   elapsedSeconds: number;
+  trackPoints?: GpsFix[];
 }
 
 export function useGpsAutoLeg() {
@@ -481,6 +482,7 @@ export function useGpsAutoLeg() {
       maxSpeedKts: current.maxSpeedKts || undefined,
       avgSpeedKts: avgSpeed > 0 ? avgSpeed : undefined,
       elapsedSeconds,
+      trackPoints: current.fixes && current.fixes.length > 0 ? current.fixes : undefined,
     };
 
     setActiveLeg(null);

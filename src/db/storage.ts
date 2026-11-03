@@ -667,6 +667,20 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
             arrivalCoordinates: { lat: 48.6472, lon: -122.8717 },
             maxSpeedKts: 7.8,
             avgSpeedKts: 4.4,
+            trackPoints: [
+              { lat: 48.5173, lon: -122.6045, speedKts: 0.0, headingDeg: 340, timestamp: 1786780800000 },
+              { lat: 48.5255, lon: -122.6105, speedKts: 5.2, headingDeg: 330, timestamp: 1786781700000 },
+              { lat: 48.5340, lon: -122.6450, speedKts: 6.8, headingDeg: 295, timestamp: 1786783500000 },
+              { lat: 48.5410, lon: -122.6900, speedKts: 7.2, headingDeg: 285, timestamp: 1786785300000 },
+              { lat: 48.5480, lon: -122.7500, speedKts: 7.4, headingDeg: 280, timestamp: 1786787100000 },
+              { lat: 48.5360, lon: -122.8050, speedKts: 6.9, headingDeg: 250, timestamp: 1786788900000 },
+              { lat: 48.5400, lon: -122.8350, speedKts: 7.8, headingDeg: 310, timestamp: 1786790700000 },
+              { lat: 48.6010, lon: -122.8250, speedKts: 7.5, headingDeg: 355, timestamp: 1786793400000 },
+              { lat: 48.6180, lon: -122.8450, speedKts: 6.2, headingDeg: 320, timestamp: 1786795200000 },
+              { lat: 48.6350, lon: -122.8620, speedKts: 5.4, headingDeg: 335, timestamp: 1786797000000 },
+              { lat: 48.6440, lon: -122.8700, speedKts: 3.8, headingDeg: 345, timestamp: 1786798200000 },
+              { lat: 48.6472, lon: -122.8717, speedKts: 0.0, headingDeg: 350, timestamp: 1786798800000 },
+            ],
             photos: [
               {
                 id: 'photo-leg-sample-1',
@@ -707,6 +721,16 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
             arrivalCoordinates: { lat: 48.5361, lon: -123.0139 },
             maxSpeedKts: 8.2,
             avgSpeedKts: 4.4,
+            trackPoints: [
+              { lat: 48.6472, lon: -122.8717, speedKts: 0.0, headingDeg: 170, timestamp: 1786856100000 },
+              { lat: 48.6250, lon: -122.8550, speedKts: 6.1, headingDeg: 155, timestamp: 1786857900000 },
+              { lat: 48.5950, lon: -122.8200, speedKts: 7.0, headingDeg: 200, timestamp: 1786859700000 },
+              { lat: 48.5850, lon: -122.9000, speedKts: 7.8, headingDeg: 260, timestamp: 1786862400000 },
+              { lat: 48.5920, lon: -122.9750, speedKts: 8.2, headingDeg: 275, timestamp: 1786864200000 },
+              { lat: 48.5600, lon: -123.0050, speedKts: 7.1, headingDeg: 195, timestamp: 1786865100000 },
+              { lat: 48.5390, lon: -123.0080, speedKts: 4.5, headingDeg: 215, timestamp: 1786865700000 },
+              { lat: 48.5361, lon: -123.0139, speedKts: 0.0, headingDeg: 240, timestamp: 1786866000000 },
+            ],
             photos: [
               {
                 id: 'photo-leg-sample-2',
@@ -758,6 +782,14 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
             arrivalCoordinates: { lat: 48.6756, lon: -122.6158 },
             maxSpeedKts: 6.9,
             avgSpeedKts: 4.2,
+            trackPoints: [
+              { lat: 48.7561, lon: -122.5083, speedKts: 0.0, headingDeg: 220, timestamp: 1793433600000 },
+              { lat: 48.7450, lon: -122.5200, speedKts: 5.5, headingDeg: 215, timestamp: 1793435400000 },
+              { lat: 48.7200, lon: -122.5450, speedKts: 6.4, headingDeg: 210, timestamp: 1793437200000 },
+              { lat: 48.7000, lon: -122.5750, speedKts: 6.9, headingDeg: 215, timestamp: 1793439000000 },
+              { lat: 48.6820, lon: -122.6050, speedKts: 5.1, headingDeg: 225, timestamp: 1793440800000 },
+              { lat: 48.6756, lon: -122.6158, speedKts: 0.0, headingDeg: 235, timestamp: 1793441700000 },
+            ],
           },
         ],
       } as SailTrip,
@@ -892,24 +924,28 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
     sailTrips = sailTrips.map((trip) => {
       if (trip.id === 'trip-sample-1') {
         const updatedLegs = (trip.legs || []).map((leg) => {
-          if (leg.id === 'leg-sample-1' && !leg.departureCoordinates) {
+          if (leg.id === 'leg-sample-1' && (!leg.departureCoordinates || !leg.trackPoints)) {
             changed = true;
+            const sampleLeg1 = sampleDb.sailTrips?.[0]?.legs?.find((l) => l.id === 'leg-sample-1');
             return {
               ...leg,
               departureCoordinates: { lat: 48.5173, lon: -122.6045 },
               arrivalCoordinates: { lat: 48.6472, lon: -122.8717 },
               maxSpeedKts: 7.8,
               avgSpeedKts: 4.4,
+              trackPoints: sampleLeg1?.trackPoints,
             };
           }
-          if (leg.id === 'leg-sample-2' && !leg.departureCoordinates) {
+          if (leg.id === 'leg-sample-2' && (!leg.departureCoordinates || !leg.trackPoints)) {
             changed = true;
+            const sampleLeg2 = sampleDb.sailTrips?.[0]?.legs?.find((l) => l.id === 'leg-sample-2');
             return {
               ...leg,
               departureCoordinates: { lat: 48.6472, lon: -122.8717 },
               arrivalCoordinates: { lat: 48.5361, lon: -123.0139 },
               maxSpeedKts: 8.2,
               avgSpeedKts: 4.4,
+              trackPoints: sampleLeg2?.trackPoints,
             };
           }
           return leg;

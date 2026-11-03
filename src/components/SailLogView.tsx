@@ -39,6 +39,7 @@ import {
   SailTrip,
   SeaState,
   WeatherSky,
+  GpsFix,
 } from '../types';
 import { compressImageFile } from '../utils/vendors';
 import { IS_DEMO_MODE } from '../utils/demoMode';
@@ -48,6 +49,7 @@ import {
   degreesToCompassWithDegrees,
   formatElapsedDuration,
 } from '../utils/geo';
+import { LegTrackMap, MapLegData } from './LegTrackMap';
 
 interface SailLogViewProps {
   db: CaptainsDatabase;
@@ -90,11 +92,20 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     cancelAutoLeg,
   } = useGpsAutoLeg();
 
-  // GPS Leg coordinates state for saving with legs
+  // GPS Leg coordinates and track points state for saving with legs
   const [legDepartureCoords, setLegDepartureCoords] = useState<{ lat: number; lon: number } | undefined>();
   const [legArrivalCoords, setLegArrivalCoords] = useState<{ lat: number; lon: number } | undefined>();
   const [legMaxSpeedKts, setLegMaxSpeedKts] = useState<number | undefined>();
   const [legAvgSpeedKts, setLegAvgSpeedKts] = useState<number | undefined>();
+  const [legTrackPoints, setLegTrackPoints] = useState<GpsFix[] | undefined>();
+
+  // Map Modal & Live HUD Chart state
+  const [mapModalData, setMapModalData] = useState<{
+    title: string;
+    subtitle?: string;
+    legs: MapLegData[];
+  } | null>(null);
+  const [showHudChart, setShowHudChart] = useState(false);
 
   // Expandable trip card state (trips start collapsed/minimized by default)
   const [expandedTripIds, setExpandedTripIds] = useState<Record<string, boolean>>({});
@@ -390,6 +401,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     setLegArrivalCoords(undefined);
     setLegMaxSpeedKts(undefined);
     setLegAvgSpeedKts(undefined);
+    setLegTrackPoints(undefined);
 
     setShowLegModal(true);
   };
@@ -440,6 +452,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     setLegArrivalCoords(summary.arrivalCoordinates);
     setLegMaxSpeedKts(summary.maxSpeedKts);
     setLegAvgSpeedKts(summary.avgSpeedKts);
+    setLegTrackPoints(summary.trackPoints);
 
     setShowLegModal(true);
   };
@@ -497,6 +510,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     setLegArrivalCoords(leg.arrivalCoordinates);
     setLegMaxSpeedKts(leg.maxSpeedKts);
     setLegAvgSpeedKts(leg.avgSpeedKts);
+    setLegTrackPoints(leg.trackPoints);
 
     setShowLegModal(true);
   };
@@ -592,6 +606,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                   arrivalCoordinates: legArrivalCoords,
                   maxSpeedKts: legMaxSpeedKts,
                   avgSpeedKts: legAvgSpeedKts,
+                  trackPoints: legTrackPoints,
                 }
               : l
           );
@@ -629,6 +644,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
             arrivalCoordinates: legArrivalCoords,
             maxSpeedKts: legMaxSpeedKts,
             avgSpeedKts: legAvgSpeedKts,
+            trackPoints: legTrackPoints,
           };
           return { ...t, legs: [...currentLegs, newLeg] };
         }
@@ -935,6 +951,19 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
 
             {/* Action buttons */}
             <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+              <button
+                type="button"
+                onClick={() => setShowHudChart(!showHudChart)}
+                className={`flex items-center gap-1 font-bold text-xs px-2.5 py-1.5 rounded-lg border transition cursor-pointer ${
+                  showHudChart
+                    ? 'bg-sky-500 text-slate-950 border-sky-400 shadow'
+                    : 'text-sky-300 bg-sky-950/60 border-sky-600/50 hover:bg-sky-900/80'
+                }`}
+                title="Toggle live marine navigation chart"
+              >
+                <Compass className="w-3.5 h-3.5" />
+                <span>{showHudChart ? 'Hide Map' : 'Live Map'}</span>
+              </button>
               {activeLeg.isPaused ? (
                 <button
                   type="button"
@@ -985,6 +1014,20 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Live Navigation Chart view (when toggled) */}
+          {showHudChart && (
+            <div className="pt-1">
+              <LegTrackMap
+                title={`Live Cockpit Chart — ${trips.find((t) => t.id === activeLeg.tripId)?.title || 'Passage'}`}
+                subtitle={`${activeLeg.fixes.length} fixes logged • ${activeLeg.distanceNm.toFixed(2)} NM run`}
+                legs={trips.find((t) => t.id === activeLeg.tripId)?.legs || []}
+                activeVesselFix={currentFix}
+                liveTrackPoints={activeLeg.fixes}
+                className="w-full h-72 sm:h-80"
+              />
+            </div>
+          )}
 
           {/* Large High-Contrast Cockpit Gauges */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 text-center">
@@ -1409,6 +1452,23 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                             </div>
                           ) : null
                         )}
+                        {trip.legs && trip.legs.some((l) => l.departureCoordinates || l.arrivalCoordinates || (l.trackPoints && l.trackPoints.length > 0)) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setMapModalData({
+                                title: `${trip.title} — Voyage Track Chart`,
+                                subtitle: `${trip.legs.length} Leg${trip.legs.length === 1 ? '' : 's'} • Started ${trip.startDate}`,
+                                legs: trip.legs,
+                              })
+                            }
+                            className="flex items-center gap-1 text-[11px] font-bold text-sky-300 bg-sky-950/40 hover:bg-sky-900/50 border border-sky-800/60 rounded-lg px-2.5 py-1 transition cursor-pointer"
+                            title="View all legs of this voyage on one navigation chart"
+                          >
+                            <Compass className="w-3 h-3 text-sky-400" />
+                            <span>Voyage Map</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => openCreateLegModal(trip)}
@@ -1585,6 +1645,20 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                                             </span>
                                           )}
                                         </div>
+                                         <button
+                                           type="button"
+                                           onClick={() =>
+                                             setMapModalData({
+                                               title: `${leg.title || `Leg #${leg.legNumber}`}: ${leg.departurePort.split(',')[0]} → ${leg.arrivalPort.split(',')[0]}`,
+                                               subtitle: `${leg.distanceNm ? `${leg.distanceNm} NM • ` : ''}${leg.departureTime ? leg.departureTime.replace('T', ' ') : ''}`,
+                                               legs: [leg],
+                                             })
+                                           }
+                                           className="mt-2 inline-flex items-center gap-1.5 bg-teal-900/40 hover:bg-teal-800/60 border border-teal-500/50 text-teal-200 text-xs font-bold px-3 py-1.5 rounded-lg transition cursor-pointer"
+                                         >
+                                           <Compass className="w-3.5 h-3.5 text-teal-400" />
+                                           <span>View GPS Track Map</span>
+                                         </button>
                                       </div>
                                     </div>
                                   )}
@@ -2484,6 +2558,30 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Navigation Map Modal */}
+      {mapModalData && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-6"
+          onClick={() => setMapModalData(null)}
+        >
+          <div
+            className="w-full max-w-5xl h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <LegTrackMap
+              isModal={true}
+              title={mapModalData.title}
+              subtitle={mapModalData.subtitle}
+              legs={mapModalData.legs}
+              onClose={() => setMapModalData(null)}
+              activeVesselFix={activeLeg ? currentFix : undefined}
+              liveTrackPoints={activeLeg ? activeLeg.fixes : undefined}
+              className="w-full h-full"
+            />
+          </div>
         </div>
       )}
 
