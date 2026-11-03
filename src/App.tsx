@@ -29,7 +29,7 @@ import {
   SyncStatusReport,
   vesselNameToBoatSyncId,
 } from './db/supabaseSync';
-import { compressImageFile, evaluateSchedule } from './utils/vendors';
+import { calculateFuelStats, compressImageFile, evaluateSchedule } from './utils/vendors';
 import { ALL_INSIGNIAS, isBadgeLogoInsignia, renderVesselInsignia } from './utils/insignias';
 import { IS_DEMO_MODE } from './utils/demoMode';
 import { MaintenanceView } from './components/MaintenanceView';
@@ -236,6 +236,7 @@ export const App: React.FC = () => {
   const lowSparesCount = db.parts.filter(
     (p) => p.trackQuantity !== false && p.quantityOnBoard < p.minQuantity
   ).length;
+  const fuelStats = calculateFuelStats(db.fuelLogs, db.vessel);
   const hasUnderwayPassage = (db.sailTrips || []).some((t) => t.status === 'underway');
   const isWallpaperActive = Boolean(
     db.vessel.wallpaperEnabled && db.vessel.wallpaperUrl
@@ -405,22 +406,42 @@ export const App: React.FC = () => {
             </div>
           </button>
 
-          <button
-            onClick={() => {
-              setActiveTab('maintenance');
-              setShowManualsModal(true);
-            }}
-            className="text-left p-2 sm:p-2.5 rounded-xl border bg-slate-900 border-slate-800 transition hover:border-indigo-500/50 hover:bg-slate-900/90 group"
-            title="Open Equipment Manuals & Schematics Locker"
-          >
-            <div className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-indigo-300 truncate flex items-center gap-1">
-              <BookOpen className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-400 shrink-0" />
-              <span>Service Manuals</span>
-            </div>
-            <div className="text-[11px] sm:text-xs font-bold mt-0.5 text-indigo-200 truncate flex items-center gap-1">
-              <span>{(db.manuals || []).length} PDF Manuals</span>
-            </div>
-          </button>
+          {activeTab === 'sail' ? (
+            <button
+              onClick={() => setActiveTab('fuel')}
+              className="text-left p-2 sm:p-2.5 rounded-xl border bg-slate-900 border-slate-800 transition hover:border-sky-500/50 hover:bg-slate-900/90 group"
+              title="View Fuel Tank Levels & Log Refueling"
+            >
+              <div className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-slate-400 truncate flex items-center gap-1">
+                <Fuel className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-sky-400 shrink-0" />
+                <span>
+                  {db.vessel.fuelType === 'gasoline' ? 'Est. Gas Tank' : 'Est. Diesel Tank'}
+                </span>
+              </div>
+              <div className="text-[11px] sm:text-xs font-bold mt-0.5 text-sky-400 font-mono truncate flex items-center gap-1">
+                <span>
+                  {fuelStats.estimatedGallonsRemaining}g ({fuelStats.estimatedTankPercent}%)
+                </span>
+              </div>
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setActiveTab('maintenance');
+                setShowManualsModal(true);
+              }}
+              className="text-left p-2 sm:p-2.5 rounded-xl border bg-slate-900 border-slate-800 transition hover:border-indigo-500/50 hover:bg-slate-900/90 group"
+              title="Open Equipment Manuals & Schematics Locker"
+            >
+              <div className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-indigo-300 truncate flex items-center gap-1">
+                <BookOpen className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-indigo-400 shrink-0" />
+                <span>Service Manuals</span>
+              </div>
+              <div className="text-[11px] sm:text-xs font-bold mt-0.5 text-indigo-200 truncate flex items-center gap-1">
+                <span>{(db.manuals || []).length} PDF Manuals</span>
+              </div>
+            </button>
+          )}
 
           <button
             onClick={() => setActiveTab('parts')}

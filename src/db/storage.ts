@@ -718,9 +718,10 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
           },
         ],
       },
-      {
-        id: 'trip-sample-2',
-        title: 'Bellingham Bay to Sucia Island Passage',
+      ...(IS_DEMO_MODE ? [
+        {
+          id: 'trip-sample-2',
+          title: 'Bellingham Bay to Sucia Island Passage',
         startDate: '2026-10-31',
         status: 'underway',
         captain: 'Capt. Jack',
@@ -759,7 +760,8 @@ export function getInitialSampleDatabase(): CaptainsDatabase {
             avgSpeedKts: 4.2,
           },
         ],
-      },
+      } as SailTrip,
+    ] : []),
     ],
     manuals: DEFAULT_SAMPLE_MANUALS,
   };
@@ -917,12 +919,21 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
       return trip;
     });
 
-    // If sample underway trip is missing, add it to demo
-    if (!sailTrips.some((t: SailTrip) => t.id === 'trip-sample-2')) {
-      const sampleTrip2 = (sampleDb.sailTrips || []).find((t: SailTrip) => t.id === 'trip-sample-2');
-      if (sampleTrip2) {
-        sailTrips = [sampleTrip2, ...sailTrips];
+    // Ensure demo underway trip is only present in Demo Mode
+    if (!IS_DEMO_MODE) {
+      const cleaned = sailTrips.filter((t) => t.id !== 'trip-sample-2');
+      if (cleaned.length !== sailTrips.length) {
+        sailTrips = cleaned;
         changed = true;
+      }
+    } else {
+      // In demo mode, ensure sample underway trip is present
+      if (!sailTrips.some((t: SailTrip) => t.id === 'trip-sample-2')) {
+        const sampleTrip2 = (sampleDb.sailTrips || []).find((t: SailTrip) => t.id === 'trip-sample-2');
+        if (sampleTrip2) {
+          sailTrips = [sampleTrip2, ...sailTrips];
+          changed = true;
+        }
       }
     }
   }
