@@ -44,6 +44,21 @@ jobs:
           if [ -d "resources/android" ]; then
             cp -r resources/android/* android/app/src/main/res/
           fi
+          node -e '
+            const fs = require("fs");
+            const file = "android/app/src/main/AndroidManifest.xml";
+            let xml = fs.readFileSync(file, "utf8");
+            const perms = `
+    <!-- Geolocation & GPS permissions for Passage Log AutoLeg -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+</manifest>`;
+            xml = xml.replace("</manifest>", perms);
+            fs.writeFileSync(file, xml, "utf8");
+            console.log("Injected GPS and WakeLock permissions into AndroidManifest.xml");
+          '
           npx cap sync android
           cat android/app/src/main/assets/capacitor.plugins.json
 

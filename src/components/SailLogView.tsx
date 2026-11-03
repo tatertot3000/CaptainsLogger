@@ -77,10 +77,12 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   const {
     activeLeg,
     currentFix,
+    trackingStatus,
     errorMessage: gpsErrorMessage,
     isWakeLockActive,
     elapsedSeconds,
     avgSpeedKts,
+    requestGpsPermission,
     startAutoLeg,
     pauseAutoLeg,
     resumeAutoLeg,
@@ -1071,9 +1073,21 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
           </div>
 
           {gpsErrorMessage && (
-            <div className="flex items-center gap-2 bg-rose-950/40 border border-rose-500/50 text-rose-300 text-xs px-3 py-2 rounded-xl">
-              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-              <span>{gpsErrorMessage}</span>
+            <div className="flex items-center justify-between gap-3 bg-rose-950/40 border border-rose-500/50 text-rose-300 text-xs px-3 py-2.5 rounded-xl flex-wrap">
+              <div className="flex items-center gap-2 min-w-0">
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                <span className="break-words">{gpsErrorMessage}</span>
+              </div>
+              {trackingStatus === 'permission-denied' && (
+                <button
+                  type="button"
+                  onClick={() => requestGpsPermission()}
+                  className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition shrink-0 cursor-pointer shadow"
+                >
+                  <Radio className="w-3.5 h-3.5" />
+                  <span>Grant Permission</span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1371,15 +1385,28 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                               <span>AutoLeg Recording...</span>
                             </span>
                           ) : !activeLeg ? (
-                            <button
-                              type="button"
-                              onClick={() => startAutoLeg(trip.id)}
-                              className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-700/60 rounded-lg px-2.5 py-1 transition cursor-pointer"
-                              title="Start tracking speed, distance and time with device GPS"
-                            >
-                              <Radio className="w-3.5 h-3.5 text-emerald-400" />
-                              <span>Start GPS AutoLeg</span>
-                            </button>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {trackingStatus === 'permission-denied' && (
+                                <button
+                                  type="button"
+                                  onClick={() => requestGpsPermission()}
+                                  className="flex items-center gap-1.5 text-[11px] font-bold text-amber-300 bg-amber-950/50 hover:bg-amber-900/70 border border-amber-600/60 rounded-lg px-2.5 py-1 transition cursor-pointer"
+                                  title="Grant Location Permission for Android"
+                                >
+                                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                                  <span>Enable GPS</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => startAutoLeg(trip.id)}
+                                className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-700/60 rounded-lg px-2.5 py-1 transition cursor-pointer"
+                                title="Start tracking speed, distance and time with device GPS"
+                              >
+                                <Radio className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>Start GPS AutoLeg</span>
+                              </button>
+                            </div>
                           ) : null
                         )}
                         <button
