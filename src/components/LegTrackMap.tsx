@@ -9,9 +9,12 @@ import {
   Radio,
   Eye,
   EyeOff,
+  DownloadCloud,
 } from 'lucide-react';
 import type { GpsFix } from '../types';
 import { toMarineCoordinates } from '../utils/geo';
+import { createOfflineTileLayer } from '../utils/offlineMapTiles';
+import { OfflineChartManagerModal } from './OfflineChartManagerModal';
 
 export interface MapLegData {
   id: string;
@@ -67,9 +70,10 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
   const seaMapLayerRef = useRef<L.TileLayer | null>(null);
   const vectorsLayerGroupRef = useRef<L.LayerGroup | null>(null);
 
-  const [activeLayer, setActiveLayer] = useState<MapLayerType>('dark');
+  const [activeLayer, setActiveLayer] = useState<MapLayerType>('osm');
   const [showSeaMarks, setShowSeaMarks] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showOfflineModal, setShowOfflineModal] = useState(false);
 
   // Compute total passage metrics
   const totalStats = useMemo(() => {
@@ -118,7 +122,7 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
           position: 'bottomleft',
           prefix: false,
         })
-        .addAttribution('© OpenStreetMap, OpenSeaMap, CARTO')
+        .addAttribution('© OpenStreetMap, OpenSeaMap')
         .addTo(map);
 
       mapInstanceRef.current = map;
@@ -132,22 +136,27 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
       map.removeLayer(baseLayerRef.current);
     }
 
-    let tileUrl = '';
+    let tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
     let maxZoom = 19;
+    let className = '';
 
     if (activeLayer === 'dark') {
-      tileUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+      tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+      className = 'map-tiles-dark';
     } else if (activeLayer === 'osm') {
       tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+      className = '';
     } else if (activeLayer === 'satellite') {
       tileUrl =
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
       maxZoom = 18;
+      className = '';
     }
 
-    const baseLayer = L.tileLayer(tileUrl, {
+    const baseLayer = createOfflineTileLayer(tileUrl, {
       maxZoom,
-      subdomains: 'abcd',
+      subdomains: 'abc',
+      className,
     }).addTo(map);
     baseLayerRef.current = baseLayer;
 
@@ -158,7 +167,7 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
     }
 
     if (showSeaMarks) {
-      const seaMarks = L.tileLayer(
+      const seaMarks = createOfflineTileLayer(
         'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
         {
           maxZoom: 18,
@@ -487,6 +496,16 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
             </div>
           )}
 
+          <button
+            type="button"
+            onClick={() => setShowOfflineModal(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-sky-300 bg-sky-950/70 hover:bg-sky-900 border border-sky-500/40 rounded-lg transition shadow cursor-pointer"
+            title="Download offline chart pack for cruising with no cell service"
+          >
+            <DownloadCloud className="w-3.5 h-3.5 text-sky-400" />
+            <span className="hidden sm:inline">Offline Charts</span>
+          </button>
+
           {isModal && (
             <button
               type="button"
@@ -526,17 +545,6 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
         <div className="absolute top-3 left-3 z-[400] flex items-center gap-1 bg-slate-900/90 backdrop-blur border border-slate-700/70 rounded-xl p-1 shadow-lg text-[11px] font-semibold">
           <button
             type="button"
-            onClick={() => setActiveLayer('dark')}
-            className={`px-2 py-1 rounded-lg transition ${
-              activeLayer === 'dark'
-                ? 'bg-sky-500 text-slate-950 font-bold shadow'
-                : 'text-slate-300 hover:text-white hover:bg-slate-800'
-            }`}
-          >
-            Night Cockpit
-          </button>
-          <button
-            type="button"
             onClick={() => setActiveLayer('osm')}
             className={`px-2 py-1 rounded-lg transition ${
               activeLayer === 'osm'
@@ -556,6 +564,17 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
             }`}
           >
             Satellite
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveLayer('dark')}
+            className={`px-2 py-1 rounded-lg transition ${
+              activeLayer === 'dark'
+                ? 'bg-sky-500 text-slate-950 font-bold shadow'
+                : 'text-slate-300 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            Night Cockpit
           </button>
 
           <div className="w-[1px] h-4 bg-slate-700 mx-1" />
@@ -624,6 +643,31 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Offline Chart Pack Manager Modal */}
+      {showOfflineModal && (
+        <OfflineChartManagerModal
+          centerLat={
+            activeVesselFix?.lat ||
+            legs[0]?.departureCoordinates?.lat ||
+            48.65
+          }
+          centerLon={
+            activeVesselFix?.lon ||
+            legs[0]?.departureCoordinates?.lon ||
+            -122.87
+          }
+          centerLabel={
+            activeVesselFix
+              ? 'Current Vessel GPS Position'
+              : legs[0]?.departurePort || 'Cruising Area'
+          }
+          onClose={() => setShowOfflineModal(false)}
+          onDownloaded={() => {
+            mapInstanceRef.current?.invalidateSize();
+          }}
+        />
+      )}
     </div>
   );
 };

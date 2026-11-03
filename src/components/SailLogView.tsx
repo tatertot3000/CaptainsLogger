@@ -50,6 +50,7 @@ import {
   formatElapsedDuration,
 } from '../utils/geo';
 import { LegTrackMap, MapLegData } from './LegTrackMap';
+import { PhotoLightboxModal } from './PhotoLightboxModal';
 
 interface SailLogViewProps {
   db: CaptainsDatabase;
@@ -2585,29 +2586,13 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
         </div>
       )}
 
-      {/* Photo Lightbox Modal */}
+      {/* Photo Lightbox Modal with Zoom & Download */}
       {previewPhotoUrl && (
-        <div
-          className="fixed inset-0 z-[110] bg-black/90 flex items-center justify-center p-4 cursor-pointer"
-          onClick={() => setPreviewPhotoUrl(null)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
-            <button
-              type="button"
-              onClick={() => setPreviewPhotoUrl(null)}
-              className="absolute -top-10 right-0 text-white/80 hover:text-white p-1 rounded-full bg-slate-800/60 transition"
-              title="Close image preview"
-            >
-              <X className="w-6 h-6" />
-            </button>
-            <img
-              src={previewPhotoUrl}
-              alt="Passage photo enlarged"
-              className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl border border-slate-800"
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        </div>
+        <PhotoLightboxModal
+          imageUrl={previewPhotoUrl}
+          title="Passage Journal Photo"
+          onClose={() => setPreviewPhotoUrl(null)}
+        />
       )}
     </div>
   );

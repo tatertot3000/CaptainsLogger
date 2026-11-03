@@ -42,3 +42,9 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
   border-radius: 9999px;
 }
 
+/* Night Cockpit Nautical Map Filter (Converts standard free OSM tiles into low-glare dark nautical mode without API keys) */
+.map-tiles-dark {
+  filter: brightness(0.6) invert(1) contrast(2.6) hue-rotate(195deg) saturate(0.35) brightness(0.75) !important;
+}
+
+
