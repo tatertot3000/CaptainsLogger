@@ -831,7 +831,7 @@ export const FuelLogView: React.FC<FuelLogViewProps> = ({
                                       </strong>
                                     </>
                                   ) : (
-                                    <span className="text-slate-400">Untracked reference</span>
+                                    <span className="text-slate-400">Untracked</span>
                                   )}
                                 </span>
                                 {item.dosageHint && <span>• {item.dosageHint}</span>}

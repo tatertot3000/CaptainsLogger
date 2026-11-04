@@ -5,6 +5,8 @@
  * and standard marine coordinate formatting (Degrees & Decimal Minutes).
  */
 
+import type { GpsPollingProfile, GpsProfileConfig } from '../types';
+
 export const METERS_PER_NAUTICAL_MILE = 1852;
 export const MPS_TO_KNOTS = 1.94384449;
 export const EARTH_RADIUS_METERS = 6371000;
@@ -47,6 +49,35 @@ export function haversineDistanceNm(
 ): number {
   const meters = haversineDistanceMeters(lat1, lon1, lat2, lon2);
   return Number((meters / METERS_PER_NAUTICAL_MILE).toFixed(2));
+}
+
+export function metersToFeet(meters: number): number {
+  return Math.round(meters * 3.28084);
+}
+
+export function feetToMeters(feet: number): number {
+  return Number((feet / 3.28084).toFixed(1));
+}
+
+/**
+ * Calculates initial true bearing in degrees (0-360) from point 1 to point 2.
+ */
+export function calculateBearingDegrees(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const toDeg = (rad: number) => (rad * 180) / Math.PI;
+
+  const y = Math.sin(toRad(lon2 - lon1)) * Math.cos(toRad(lat2));
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lon2 - lon1));
+
+  const bearing = toDeg(Math.atan2(y, x));
+  return Math.round((bearing + 360) % 360);
 }
 
 /**
@@ -160,3 +191,52 @@ export function formatElapsedDuration(totalSeconds: number): string {
   return `${pad(mins)}:${pad(secs)}`;
 }
 
+export const GPS_POLLING_PROFILES: Record<GpsPollingProfile, GpsProfileConfig> = {
+  high: {
+    id: 'high',
+    label: 'Real-Time (1s)',
+    intervalSeconds: 1,
+    distanceFilterMeters: 0,
+    batteryHint: 'High Battery',
+    description: 'Continuous satellite stream for tight channels, docking, & racing',
+  },
+  balanced: {
+    id: 'balanced',
+    label: 'Balanced (5s)',
+    intervalSeconds: 5,
+    distanceFilterMeters: 10,
+    batteryHint: 'Moderate Battery',
+    description: 'Smooth tracking with moderate battery savings for day sailing',
+  },
+  cruising: {
+    id: 'cruising',
+    label: 'Cruising (15s)',
+    intervalSeconds: 15,
+    distanceFilterMeters: 25,
+    batteryHint: 'Recommended / Low Battery',
+    description: 'Standard coastal cruising and motoring with low battery consumption',
+  },
+  offshore: {
+    id: 'offshore',
+    label: 'Offshore (30s)',
+    intervalSeconds: 30,
+    distanceFilterMeters: 50,
+    batteryHint: 'Very Low Battery',
+    description: 'Preserves phone battery on long offshore legs and anchor watches',
+  },
+  ocean: {
+    id: 'ocean',
+    label: 'Ocean (60s)',
+    intervalSeconds: 60,
+    distanceFilterMeters: 100,
+    batteryHint: 'Minimal Battery',
+    description: 'Multi-day ocean passages running on battery power',
+  },
+};
+
+export function getGpsProfileConfig(profile?: GpsPollingProfile | null): GpsProfileConfig {
+  if (profile && GPS_POLLING_PROFILES[profile]) {
+    return GPS_POLLING_PROFILES[profile];
+  }
+  return GPS_POLLING_PROFILES.cruising;
+}

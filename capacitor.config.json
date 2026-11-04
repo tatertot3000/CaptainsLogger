@@ -1,0 +1,10 @@
+{
+  "appId": "com.captainslogger.app",
+  "appName": "Captains Logger",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "android": {
+    "useLegacyBridge": true
+  }
+}
+

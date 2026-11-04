@@ -1,73 +1,68 @@
 # Captain's Logger — Storage, Backup & Cloud Sync Guide
 
-This guide explains how your boat maintenance, fuel logs, and parts catalog data are saved across your devices, how to back them up, and how to set up free cloud syncing between your PC and Android phone.
+This guide explains how vessel maintenance records, spare parts inventory, fuel logs, passage journals, GPS tracks, and equipment manuals are saved across your devices, how to back them up, and how to set up free cloud syncing between your PC, tablet, and Android phone.
 
 ---
 
-## 1. Running on PC & Installing the Android APK
+## 1. Running on PC & Installing the Android App
 
 ### On Your PC (Local Development)
-From your project folder, run:
+From your project folder:
 
 ```bash
 npm run dev
 ```
 
-Open http://localhost:5173/ in your PC browser.
+Open **`http://localhost:5173`** in your browser.
 
-### On Your Android Phone (Automated GitHub APK Build)
-Every time you push changes to the `main` branch on GitHub, the GitHub Actions workflow ([`.github/workflows/build-android-apk.yml`](./.github/workflows/build-android-apk.yml)) automatically compiles a native Android installer (`CaptainsLogger.apk`) in the cloud and publishes it to your repository's **Releases** page:
+### On Your Android Phone or Tablet
+GitHub Actions automatically builds and signs a native Android APK (`CaptainsLogger.apk`) on every push to `main`:
 
-1. Push your commits to GitHub:
-   ```bash
-   git add .
-   git commit -m "Update Captains Logger"
-   git push origin main
-   ```
-2. Wait ~2–3 minutes for the **Build Android APK** action to finish under your repository's **Actions** tab.
-3. On your Android phone, open your repository's **Releases** page (`releases/tag/latest-apk`).
-4. Tap **`CaptainsLogger.apk`** under **Assets** to download and install the app onto your phone.
-   *(Note: If Android Play Protect shows a prompt because it's a self-signed build, tap **More details → Install anyway**.)*
+1. On your Android device, open your repository's [**Releases**](https://github.com/tatertot3000/CaptainsLogger/releases) page.
+2. Under **Assets**, tap **`CaptainsLogger.apk`** to download and install.
+   *(If prompted, allow installation from unknown sources).*
+3. To record GPS tracks continuously when your phone is locked or in your pocket:  
+   Go to **Android Settings > Apps > Captain's Logger > Permissions > Location** and select **"Allow all the time"**.
 
 ---
 
-## 2. How the 3-Layer Storage System Works
+## 2. The 3-Layer Storage Architecture
 
-Every time you update engine hours, log a maintenance task, record a fuel fill-up, or change a spare part count, the app saves your data across **three layers**:
+Every time you update engine hours, log maintenance, deduct spare parts, record fuel, or finish an AutoLeg passage, the data is handled across three layers:
 
-### Layer 1: Instant Offline Device Storage (`localStorage` + `IndexedDB`)
-* **Where it lives:** Inside the browser / installed PWA on the device you are currently using.
-* **Why it's there:** Works **100% offline** at sea or in the boatyard with zero cell signal.
-* **Code:** [`src/db/storage.ts`](./src/db/storage.ts)
+### Layer 1: Offline Device Storage (`IndexedDB` + `localStorage`)
+* **Location:** Inside your local device storage.
+* **Function:** Operates **100% offline** at sea or in boatyards without cellular coverage. All records, GPS breadcrumbs, and PDF manuals are stored locally.
+* **Code Reference:** [`src/db/storage.ts`](./src/db/storage.ts)
 
-### Layer 2 (Option A): Automatic PC Hard Drive File (`data/captains-log.json`)
-* **Where it lives:** `data/captains-log.json` inside your project folder on your computer's hard drive.
-* **How it works:** Whenever the app is connected to your local Vite server on your PC (or from your phone over home Wi-Fi), every change is automatically written to `data/captains-log.json`.
-* **Status Indicator:** Look for the blue **`Disk Saved`** badge in the top header bar.
-* **Code:** [`vite-disk-plugin.js`](./vite-disk-plugin.js)
+### Layer 2 (Option A): Automatic PC Disk Backup (`data/captains-log.json`)
+* **Location:** `data/captains-log.json` on your computer's hard drive.
+* **Function:** When running the local Vite server on your PC, any changes made in the app are automatically saved to `data/captains-log.json`.
+* **Indicator:** Displays a blue **`Disk Saved`** badge in the header.
+* **Code Reference:** [`vite-disk-plugin.js`](./vite-disk-plugin.js)
 
-### Layer 3 (Option B): Supabase Cloud Sync (Phone ↔ PC Sync)
-* **Where it lives:** Your private PostgreSQL database on [Supabase](https://supabase.com) (free tier).
-* **How it works:**
-  * When you are at the boat without internet, changes save to Layer 1 on your phone and show **`Pending (Offline)`**.
-  * As soon as your phone reconnects to cell service or Wi-Fi, the app automatically pushes your updates to Supabase.
-  * When you open the app on your PC, it automatically pulls the latest changes from Supabase (and writes them to `data/captains-log.json` as well).
-* **Status Indicator:** Look for the green **`Synced`** badge in the top header bar.
-* **Code:** [`src/db/supabaseSync.ts`](./src/db/supabaseSync.ts)
+### Layer 3 (Option B): Supabase Cloud Sync (Multi-Device Sync)
+* **Location:** Your own private PostgreSQL database hosted on [Supabase](https://supabase.com) (free tier).
+* **Function:**
+  * While offshore without internet, changes save locally to Layer 1 and show **`Pending (Offline)`**.
+  * Once the device reconnects to Wi-Fi or cellular service, updates automatically push to your Supabase database.
+  * Opening the app on your computer or second device automatically pulls the latest records.
+* **Indicator:** Displays a green **`Synced`** badge in the header.
+* **Code Reference:** [`src/db/supabaseSync.ts`](./src/db/supabaseSync.ts)
 
 ---
 
-## 3. Step-by-Step: Setting Up Free Supabase Cloud Sync (Option B)
+## 3. Setting Up Free Supabase Cloud Sync (Option B)
 
-Setting up Supabase takes about 3 minutes and is completely free:
+Setup takes approximately 3 minutes and uses Supabase's free tier.
 
-### Step 1: Create a Free Supabase Project
-1. Go to https://supabase.com/dashboard and sign in (or create a free account).
-2. Click **"New Project"**, give it a name (e.g., `CaptainsLogger`), set a database password, and wait ~60 seconds for the database to finish provisioning.
+### Step 1: Create a Supabase Project
+1. Go to [https://supabase.com/dashboard](https://supabase.com/dashboard) and sign in (or register).
+2. Click **"New Project"**, name it (e.g. `CaptainsLogger`), set a database password, and wait for provisioning to finish (~1 minute).
 
-### Step 2: Create the Sync Table (Run SQL Once)
-1. In the left sidebar of your Supabase dashboard, click **SQL Editor** → **"New query"**.
-2. Paste the following SQL (also located in [`supabase/schema.sql`](./supabase/schema.sql)) and click **Run**:
+### Step 2: Create the Sync Table
+1. In the Supabase sidebar, open **SQL Editor** → **"New query"**.
+2. Paste the SQL below (also in [`supabase/schema.sql`](./supabase/schema.sql)) and click **Run**:
 
 ```sql
 create table if not exists public.captains_log_sync (
@@ -89,19 +84,21 @@ create policy "Allow anon read/write by boat_id"
   with check (true);
 ```
 
-### Step 3: Copy Your Project URL & Anon Key into the App
-1. In your Supabase dashboard sidebar, click **Project Settings** (the gear icon at the bottom) → **API**.
+### Step 3: Enter Your Project Credentials into the App
+1. In your Supabase dashboard, click **Project Settings** (gear icon) → **API**.
 2. Copy two values:
-   * **Project URL** (looks like `https://abcdefghijklm.supabase.co`)
+   * **Project URL** (e.g. `https://your-project-id.supabase.co`)
    * **Project API Keys → `anon` `public` key** (a long string starting with `eyJ...`)
-3. Open **Captain's Logger**, go to the **Boat & Backup** tab at the bottom, and scroll to **Option B • Supabase Cloud Sync**.
-4. Paste your **Project URL** and **Anon Key**, verify your **Boat Sync ID** (e.g., `windward-spirit-main` — use the exact same Boat Sync ID on both your PC and your Android phone), check **Enable Auto-Sync**, and click **Save & Connect Cloud**.
+3. In **Captain's Logger**, open the **Boat & Backup** tab, scroll to **Option B • Supabase Cloud Sync**.
+4. Enter your **Project URL**, **Anon Key**, and a **Boat Sync ID** (e.g. `windward-spirit-main`).  
+   *(Use the exact same Boat Sync ID on all your devices to sync to the same vessel).*
+5. Check **Enable Auto-Sync** and click **Save & Connect Cloud**.
 
 ---
 
-## 4. Optional: Pre-configuring Supabase via `.env.local`
+## 4. Optional: Pre-configuring Credentials via `.env.local`
 
-If you don't want to paste your Supabase URL and Key into the browser UI, you can create a file named `.env.local` in your project root folder:
+You can pre-configure credentials by creating a `.env.local` file in your repository root:
 
 ```env
 VITE_SUPABASE_URL=https://your-project-id.supabase.co
@@ -109,14 +106,13 @@ VITE_SUPABASE_ANON_KEY=your-anon-public-key-here
 VITE_BOAT_SYNC_ID=windward-spirit-main
 ```
 
-Any device loaded from the server will automatically pick up these defaults.
+Any client connecting to your local server will inherit these settings automatically.
 
 ---
 
-## 5. Manual File Backups & Spreadsheet Exports (`.JSON` & `.CSV`)
+## 5. Manual File Backups & Spreadsheet Exports
 
-In the **Boat & Backup** tab under **Portable File Export & Google Drive Share**:
-* **Backup All Data (`.JSON`):** Exports a complete snapshot file. On Android, this opens the native Android Share menu so you can tap **Save to Google Drive** directly.
-* **Restore Backup (`.JSON`):** Restores all schedules, service history, fuel logs, and parts from a `.json` backup file.
-* **Export Spreadsheets (`.CSV`):** Downloads Excel / Google Sheets compatible `.csv` files for your **Fuel Log**, **Service Log**, or **Parts List**.
-
+Under the **Boat & Backup** tab:
+* **Backup All Data (`.JSON`):** Exports a full database snapshot. On Android, this opens the native share menu so you can save directly to Google Drive, send via email, or save to files.
+* **Restore Backup (`.JSON`):** Imports and restores all maintenance schedules, service logs, parts inventory, fuel logs, and passage tracks from a `.json` backup file.
+* **Export Spreadsheets (`.CSV`):** Exports individual spreadsheet files for your **Fuel Log**, **Service Log**, or **Parts Catalog** for viewing in Excel or Google Sheets.

@@ -1423,7 +1423,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                     <div className="flex items-center gap-2 flex-wrap">
                       {!isTracked && (
                         <span className="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded flex items-center gap-1 bg-slate-800 text-slate-400 border border-slate-700">
-                          Untracked Ref
+                          Untracked
                         </span>
                       )}
                       <span

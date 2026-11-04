@@ -39,7 +39,9 @@ jobs:
       - name: Wrap with Capacitor & Generate Android Project
         run: |
           npm install --no-save @capacitor/cli@^6.0.0 @capacitor/android@^6.0.0
-          npx cap init "Captains Logger" com.captainslogger.app --web-dir dist
+          if [ ! -f "capacitor.config.json" ]; then
+            npx cap init "Captains Logger" com.captainslogger.app --web-dir dist
+          fi
           npx cap add android
           if [ -d "resources/android" ]; then
             cp -r resources/android/* android/app/src/main/res/

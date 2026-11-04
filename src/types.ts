@@ -19,6 +19,16 @@ export type SystemCategory =
 
 export type InventoryItemType = 'part' | 'consumable';
 export type FuelType = 'diesel' | 'gasoline';
+export type GpsPollingProfile = 'high' | 'balanced' | 'cruising' | 'offshore' | 'ocean';
+
+export interface GpsProfileConfig {
+  id: GpsPollingProfile;
+  label: string;
+  intervalSeconds: number;
+  distanceFilterMeters: number;
+  batteryHint: string;
+  description: string;
+}
 
 export interface VesselProfile {
   name: string;
@@ -35,6 +45,18 @@ export interface VesselProfile {
   wallpaperOpacity?: number;
   insignia?: string;
   fuelType?: FuelType;
+  gpsPollingProfile?: GpsPollingProfile;
+}
+
+export interface AnchorWatchState {
+  isArmed: boolean;
+  anchorCoordinates: { lat: number; lon: number };
+  dropTime: string;
+  swingRadiusMeters: number;
+  depthFeet?: number;
+  freeboardFeet?: number;
+  rodeLengthFeet?: number;
+  notes?: string;
 }
 
 export interface ConsumableContainer {

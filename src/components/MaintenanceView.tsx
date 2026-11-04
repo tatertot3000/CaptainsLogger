@@ -1068,8 +1068,8 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
             }`}
           >
             <History className="w-3.5 h-3.5" />
-            <span className="sm:hidden">Logbook ({db.serviceLogs.length})</span>
-            <span className="hidden sm:inline">Service Logbook ({db.serviceLogs.length})</span>
+            <span className="sm:hidden">Logbook</span>
+            <span className="hidden sm:inline">Service Logbook</span>
           </button>
         </div>
 
@@ -2501,7 +2501,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                                     Stock: <strong className="text-slate-200">{part.quantityOnBoard} {unit}</strong> • After: <strong className={willBeLow ? 'text-rose-400' : 'text-emerald-400'}>{remaining} {unit}</strong>
                                   </>
                                 ) : (
-                                  <span className="text-slate-400">Untracked reference item</span>
+                                  <span className="text-slate-400">Untracked</span>
                                 )}
                               </div>
                             </div>

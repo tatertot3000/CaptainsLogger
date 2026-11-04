@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -11,6 +11,7 @@ import {
   EyeOff,
   DownloadCloud,
   AlertTriangle,
+  Crosshair,
 } from 'lucide-react';
 import type { GpsFix } from '../types';
 import { toMarineCoordinates } from '../utils/geo';
@@ -42,6 +43,13 @@ export interface LegTrackMapProps {
   onClose?: () => void;
   isModal?: boolean;
   className?: string;
+  anchorWatch?: {
+    anchorCoordinates: { lat: number; lon: number };
+    swingRadiusMeters: number;
+    isArmed?: boolean;
+    isBreached?: boolean;
+    swingHistory?: GpsFix[];
+  } | null;
 }
 
 type MapLayerType = 'dark' | 'osm' | 'satellite';
@@ -64,6 +72,7 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
   onClose,
   isModal = false,
   className = '',
+  anchorWatch,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
@@ -95,7 +104,7 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
     }
 
     return {
-      distanceNm: Number(totalNm.toFixed(1)),
+      distanceNm: Number(totalNm.toFixed(2)),
       maxSpeedKts: Number(maxSpeed.toFixed(1)),
       totalPoints: pointsCount,
     };
@@ -399,6 +408,76 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
       liveGroup.addLayer(liveLine);
     }
 
+    // Render Anchor Watch circle and drop marker if provided
+    if (anchorWatch) {
+      const { anchorCoordinates, swingRadiusMeters, isBreached, isArmed, swingHistory } = anchorWatch;
+      bounds.extend([anchorCoordinates.lat, anchorCoordinates.lon]);
+
+      // 1. Swing zone circle
+      const swingCircle = L.circle([anchorCoordinates.lat, anchorCoordinates.lon], {
+        radius: swingRadiusMeters,
+        color: isBreached ? '#ef4444' : isArmed ? '#10b981' : '#f59e0b',
+        weight: 2,
+        dashArray: '5, 5',
+        fillColor: isBreached ? '#ef4444' : isArmed ? '#10b981' : '#f59e0b',
+        fillOpacity: isBreached ? 0.25 : 0.15,
+      });
+      liveGroup.addLayer(swingCircle);
+
+      // 2. Anchor Drop Point Marker
+      const anchorIcon = L.divIcon({
+        className: 'custom-anchor-marker',
+        html: `
+          <div style="
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 30px;
+            height: 30px;
+            background: #0f172a;
+            border: 2px solid ${isBreached ? '#ef4444' : '#f59e0b'};
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.6);
+            color: #f59e0b;
+            font-size: 15px;
+          ">
+            ⚓
+          </div>
+        `,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+      });
+
+      const anchorMarker = L.marker([anchorCoordinates.lat, anchorCoordinates.lon], {
+        icon: anchorIcon,
+      });
+      anchorMarker.bindPopup(`
+        <div style="font-family: sans-serif; color: #0f172a;">
+          <div style="font-weight: bold; color: #d97706; font-size: 12px;">⚓ Anchor Drop Point</div>
+          <div style="font-size: 11px; color: #64748b; font-family: monospace; margin-top: 2px;">
+            ${toMarineCoordinates(anchorCoordinates.lat, anchorCoordinates.lon)}
+          </div>
+          <div style="font-size: 11px; margin-top: 2px;">
+            Allowed Radius: <strong>${Math.round(swingRadiusMeters * 3.28084)} ft</strong> (${swingRadiusMeters}m)
+          </div>
+        </div>
+      `);
+      liveGroup.addLayer(anchorMarker);
+
+      // 3. Render swing history breadcrumbs if present
+      if (swingHistory && swingHistory.length >= 2) {
+        const swingPoints: L.LatLngTuple[] = swingHistory.map((pt: GpsFix) => [pt.lat, pt.lon]);
+        const swingLine = L.polyline(swingPoints, {
+          color: '#fbbf24',
+          weight: 2.5,
+          opacity: 0.75,
+          dashArray: '3, 4',
+          lineCap: 'round',
+        });
+        liveGroup.addLayer(swingLine);
+      }
+    }
+
     // Render live vessel icon at current active fix
     if (activeVesselFix) {
       bounds.extend([activeVesselFix.lat, activeVesselFix.lon]);
@@ -477,7 +556,52 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
       });
       hasInitialFitRef.current = true;
     }
-  }, [activeVesselFix, liveTrackPoints]);
+  }, [activeVesselFix, liveTrackPoints, anchorWatch]);
+
+  // Recenter map on active vessel GPS position
+  const handleRecenterBoat = useCallback(() => {
+    if (!mapInstanceRef.current || !activeVesselFix) return;
+    const currentZoom = mapInstanceRef.current.getZoom();
+    const targetZoom = Math.max(currentZoom, 14);
+    mapInstanceRef.current.flyTo(
+      [activeVesselFix.lat, activeVesselFix.lon],
+      targetZoom,
+      { animate: true, duration: 0.75 }
+    );
+  }, [activeVesselFix]);
+
+  // Zoom map out to fit all recorded legs and live track points
+  const handleFitRoute = useCallback(() => {
+    if (!mapInstanceRef.current) return;
+    const bounds = L.latLngBounds([]);
+
+    legs.forEach((leg) => {
+      if (leg.departureCoordinates) {
+        bounds.extend([leg.departureCoordinates.lat, leg.departureCoordinates.lon]);
+      }
+      if (leg.arrivalCoordinates) {
+        bounds.extend([leg.arrivalCoordinates.lat, leg.arrivalCoordinates.lon]);
+      }
+      if (leg.trackPoints) {
+        leg.trackPoints.forEach((pt) => bounds.extend([pt.lat, pt.lon]));
+      }
+    });
+
+    if (liveTrackPoints) {
+      liveTrackPoints.forEach((pt) => bounds.extend([pt.lat, pt.lon]));
+    }
+    if (activeVesselFix) {
+      bounds.extend([activeVesselFix.lat, activeVesselFix.lon]);
+    }
+
+    if (bounds.isValid()) {
+      mapInstanceRef.current.fitBounds(bounds, {
+        padding: [35, 35],
+        maxZoom: 15,
+        animate: true,
+      });
+    }
+  }, [legs, liveTrackPoints, activeVesselFix]);
 
   return (
     <div
@@ -622,15 +746,47 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
           </button>
         </div>
 
-        {/* Live Underway Beacon Pill (if vessel fix is present) */}
+        {/* Floating Controls Bar (Bottom Right): Recenter Boat & Fit Route */}
+        <div className="absolute bottom-3 right-3 z-[400] flex items-center gap-2">
+          {legs.length > 0 && (
+            <button
+              type="button"
+              onClick={handleFitRoute}
+              className="flex items-center gap-1.5 bg-slate-900/90 hover:bg-slate-800 active:bg-slate-950 text-slate-200 hover:text-white text-xs font-semibold px-2.5 py-1.5 rounded-xl shadow-lg border border-slate-700/80 transition cursor-pointer backdrop-blur"
+              title="Zoom out to fit entire voyage route"
+            >
+              <Compass className="w-3.5 h-3.5 text-slate-400" />
+              <span className="hidden sm:inline">Fit Route</span>
+            </button>
+          )}
+
+          {activeVesselFix && (
+            <button
+              type="button"
+              onClick={handleRecenterBoat}
+              className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xl transition border border-sky-400/50 cursor-pointer backdrop-blur"
+              title="Recenter chart onto current vessel GPS position"
+            >
+              <Crosshair className="w-3.5 h-3.5 text-white" />
+              <span>Recenter Boat</span>
+            </button>
+          )}
+        </div>
+
+        {/* Live Underway Beacon Pill (Bottom Left): Clickable to recenter on boat */}
         {activeVesselFix && (
-          <div className="absolute bottom-3 left-3 z-[400] flex items-center gap-2 bg-slate-900/90 backdrop-blur border border-sky-500/50 text-sky-200 text-xs px-3 py-1.5 rounded-xl shadow-lg">
-            <Radio className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
+          <button
+            type="button"
+            onClick={handleRecenterBoat}
+            className="absolute bottom-3 left-3 z-[400] flex items-center gap-2 bg-slate-900/90 hover:bg-slate-800 backdrop-blur border border-sky-500/50 text-sky-200 text-xs px-3 py-1.5 rounded-xl shadow-lg transition cursor-pointer group text-left"
+            title="Click to recenter map on vessel position"
+          >
+            <Radio className="w-3.5 h-3.5 text-sky-400 animate-pulse group-hover:scale-110 transition" />
             <span className="font-bold">Live GPS AutoLeg Tracking</span>
             <span className="font-mono text-[11px] text-sky-300">
               {activeVesselFix.speedKts?.toFixed(1) || '0.0'} kts
             </span>
-          </div>
+          </button>
         )}
       </div>
 

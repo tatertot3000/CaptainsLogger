@@ -1,15 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Geolocation, Position } from '@capacitor/geolocation';
-import type { ActiveAutoLeg, GpsFix } from '../types';
+import type { BackgroundGeolocationPlugin, Location } from '@capacitor-community/background-geolocation';
+import type { ActiveAutoLeg, GpsFix, GpsPollingProfile } from '../types';
 import {
   haversineDistanceNm,
   haversineDistanceMeters,
   mpsToKnots,
   isGpsJitter,
+  getGpsProfileConfig,
 } from '../utils/geo';
 
+const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation');
+
 const STORAGE_KEY = 'captains_logger_active_autoleg_v1';
+const GPS_PROFILE_STORAGE_KEY = 'captains_logger_gps_profile_v1';
 const MAX_BREADCRUMB_POINTS = 500;
 
 export type GpsTrackingStatus =
@@ -43,7 +48,41 @@ function loadSavedAutoLeg(): ActiveAutoLeg | null {
   return null;
 }
 
-export function useGpsAutoLeg() {
+export function useGpsAutoLeg(
+  initialProfile?: GpsPollingProfile,
+  onProfileChange?: (profile: GpsPollingProfile) => void
+) {
+  const [gpsProfile, setGpsProfileState] = useState<GpsPollingProfile>(() => {
+    if (initialProfile) return initialProfile;
+    try {
+      const saved = localStorage.getItem(GPS_PROFILE_STORAGE_KEY) as GpsPollingProfile;
+      if (saved && ['high', 'balanced', 'cruising', 'offshore', 'ocean'].includes(saved)) {
+        return saved;
+      }
+    } catch {}
+    return 'cruising';
+  });
+  const gpsProfileRef = useRef<GpsPollingProfile>(gpsProfile);
+  gpsProfileRef.current = gpsProfile;
+
+  const setGpsProfile = useCallback(
+    (profile: GpsPollingProfile) => {
+      setGpsProfileState(profile);
+      gpsProfileRef.current = profile;
+      try {
+        localStorage.setItem(GPS_PROFILE_STORAGE_KEY, profile);
+      } catch {}
+      onProfileChange?.(profile);
+    },
+    [onProfileChange]
+  );
+
+  useEffect(() => {
+    if (initialProfile && initialProfile !== gpsProfile) {
+      setGpsProfileState(initialProfile);
+      gpsProfileRef.current = initialProfile;
+    }
+  }, [initialProfile]);
   const [activeLeg, setActiveLeg] = useState<ActiveAutoLeg | null>(() => loadSavedAutoLeg());
 
   const [currentFix, setCurrentFix] = useState<GpsFix | null>(null);
@@ -54,7 +93,8 @@ export function useGpsAutoLeg() {
   const [isWakeLockActive, setIsWakeLockActive] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  const watchIdRef = useRef<string | number | null>(null);
+  const backgroundWatcherIdRef = useRef<string | null>(null);
+  const foregroundWatchIdRef = useRef<string | number | null>(null);
   const wakeLockRef = useRef<any>(null);
   const activeLegRef = useRef<ActiveAutoLeg | null>(activeLeg);
   activeLegRef.current = activeLeg;
@@ -167,7 +207,7 @@ export function useGpsAutoLeg() {
         } else {
           setTrackingStatus('permission-denied');
           setErrorMessage(
-            "Location permission was denied. Please allow Location in Android Settings > Apps > Captain's Logger > Permissions."
+            "Location permission was denied. Please allow Location in Android Settings > Apps > Captain's Logger > Permissions (select 'Allow all the time' for tracking while locked)."
           );
           return false;
         }
@@ -200,24 +240,154 @@ export function useGpsAutoLeg() {
     }
   }, []);
 
-  // Stop watching GPS position
-  const stopWatchingPosition = useCallback(async () => {
-    if (watchIdRef.current !== null) {
+  // Opens native Android App Settings for easy access to "Allow all the time"
+  const openDeviceSettings = useCallback(async () => {
+    if (Capacitor.isNativePlatform()) {
       try {
-        if (typeof watchIdRef.current === 'string') {
-          await Geolocation.clearWatch({ id: watchIdRef.current });
+        await BackgroundGeolocation.openSettings();
+      } catch (e) {
+        console.warn('Failed to open native settings:', e);
+      }
+    }
+  }, []);
+
+  // Stop watching GPS position across both background and foreground listeners
+  const stopWatchingPosition = useCallback(async () => {
+    // 1. Remove native background geolocation watcher
+    if (backgroundWatcherIdRef.current !== null) {
+      const bId = backgroundWatcherIdRef.current;
+      backgroundWatcherIdRef.current = null;
+      try {
+        await BackgroundGeolocation.removeWatcher({ id: bId });
+      } catch (e) {
+        console.warn('Failed to remove BackgroundGeolocation watcher:', e);
+      }
+    }
+
+    // 2. Clear foreground watch if active
+    if (foregroundWatchIdRef.current !== null) {
+      const fId = foregroundWatchIdRef.current;
+      foregroundWatchIdRef.current = null;
+      try {
+        if (typeof fId === 'string') {
+          await Geolocation.clearWatch({ id: fId });
         } else if ('geolocation' in navigator) {
-          navigator.geolocation.clearWatch(watchIdRef.current);
+          navigator.geolocation.clearWatch(fId);
         }
       } catch (e) {
         console.warn('Failed to clear Geolocation watch:', e);
       }
-      watchIdRef.current = null;
     }
+
     releaseWakeLock();
   }, [releaseWakeLock]);
 
-  // Start watching GPS position
+  // Process newly arrived GPS coordinates and update active passage leg
+  const processNewFix = useCallback(
+    (
+      latitude: number,
+      longitude: number,
+      speedMps: number | null | undefined,
+      headingDeg: number | null | undefined,
+      accuracyMeters: number | null | undefined,
+      timestampMs: number
+    ) => {
+      const currentSpeedKts = mpsToKnots(speedMps);
+
+      const newFix: GpsFix = {
+        lat: latitude,
+        lon: longitude,
+        timestamp: timestampMs,
+        accuracyMeters: accuracyMeters != null ? Number(accuracyMeters.toFixed(1)) : undefined,
+        speedKts: currentSpeedKts,
+        headingDeg: headingDeg != null && !isNaN(headingDeg) ? Math.round(headingDeg) : undefined,
+      };
+
+      setCurrentFix(newFix);
+      setErrorMessage(null);
+      setTrackingStatus((prev) => (prev === 'permission-denied' || prev === 'error' ? 'tracking' : prev));
+
+      // If leg is currently active and not paused, accumulate nautical distance
+      const currentLeg = activeLegRef.current;
+      if (!currentLeg || currentLeg.isPaused) {
+        return;
+      }
+
+      const lastFix =
+        currentLeg.fixes.length > 0
+          ? currentLeg.fixes[currentLeg.fixes.length - 1]
+          : null;
+
+      let deltaNm = 0;
+      let shouldRecordFix = false;
+
+      if (!lastFix) {
+        // First fix of the leg
+        shouldRecordFix = true;
+      } else {
+        const isJitter = isGpsJitter(lastFix, latitude, longitude, accuracyMeters ?? undefined);
+        if (!isJitter) {
+          deltaNm = haversineDistanceNm(
+            lastFix.lat,
+            lastFix.lon,
+            latitude,
+            longitude
+          );
+
+          const profileCfg = getGpsProfileConfig(gpsProfileRef.current);
+          const movedMeters = haversineDistanceMeters(
+            lastFix.lat,
+            lastFix.lon,
+            latitude,
+            longitude
+          );
+          const timeSinceLastFixSec = (timestampMs - lastFix.timestamp) / 1000;
+
+          // Record breadcrumb fix if boat moved beyond profile distance filter or interval elapsed
+          if (movedMeters >= profileCfg.distanceFilterMeters || timeSinceLastFixSec >= profileCfg.intervalSeconds) {
+            shouldRecordFix = true;
+          }
+        }
+      }
+
+      const nextDistanceNm = Number((currentLeg.distanceNm + deltaNm).toFixed(2));
+      const nextMaxSpeed = Math.max(currentLeg.maxSpeedKts || 0, currentSpeedKts);
+
+      // Avoid redundant state updates & localStorage JSON serialization when nothing changed
+      if (
+        !shouldRecordFix &&
+        nextDistanceNm === currentLeg.distanceNm &&
+        nextMaxSpeed === (currentLeg.maxSpeedKts || 0)
+      ) {
+        return;
+      }
+
+      let nextFixes = currentLeg.fixes;
+      if (shouldRecordFix) {
+        nextFixes = [...currentLeg.fixes, newFix];
+        if (nextFixes.length > MAX_BREADCRUMB_POINTS) {
+          // Keep first fix (departure) and trim oldest middle fixes
+          nextFixes = [
+            nextFixes[0],
+            ...nextFixes.slice(nextFixes.length - (MAX_BREADCRUMB_POINTS - 1)),
+          ];
+        }
+      }
+
+      const updatedLeg: ActiveAutoLeg = {
+        ...currentLeg,
+        distanceNm: nextDistanceNm,
+        maxSpeedKts: nextMaxSpeed,
+        fixes: nextFixes,
+      };
+
+      setActiveLeg(updatedLeg);
+      persistActiveLeg(updatedLeg);
+    },
+    [persistActiveLeg]
+  );
+
+  // Start watching GPS position (with background foreground service on Android)
   const startWatchingPosition = useCallback(async () => {
     // 1. Ensure permissions are granted on native Android
     if (Capacitor.isNativePlatform()) {
@@ -228,7 +398,7 @@ export function useGpsAutoLeg() {
           if (req.location !== 'granted') {
             setTrackingStatus('permission-denied');
             setErrorMessage(
-              "Location permission was denied. Please allow Location in Android Settings > Apps > Captain's Logger > Permissions."
+              "Location permission was denied. Please allow Location in Android Settings > Apps > Captain's Logger > Permissions (select 'Allow all the time' for tracking while locked)."
             );
             return;
           }
@@ -242,17 +412,62 @@ export function useGpsAutoLeg() {
       return;
     }
 
-    if (watchIdRef.current !== null) {
+    if (backgroundWatcherIdRef.current !== null || foregroundWatchIdRef.current !== null) {
       await stopWatchingPosition();
     }
 
     requestWakeLock();
 
+    // 2. On native Android: Start Background Geolocation service with persistent ongoing notification
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const id = await BackgroundGeolocation.addWatcher(
+          {
+            backgroundTitle: "Captain's Logger — Passage Tracking",
+            backgroundMessage: `Recording GPS track (${getGpsProfileConfig(gpsProfileRef.current).label})...`,
+            requestPermissions: true,
+            stale: false,
+            distanceFilter: getGpsProfileConfig(gpsProfileRef.current).distanceFilterMeters,
+          },
+          (pos?: Location, err?: any) => {
+            if (err) {
+              console.warn('BackgroundGeolocation watch error:', err);
+              if (err.code === 'NOT_AUTHORIZED') {
+                setTrackingStatus('permission-denied');
+                setErrorMessage(
+                  "Location permission was denied. Please allow Location in Android Settings > Apps > Captain's Logger > Permissions (select 'Allow all the time')."
+                );
+              } else {
+                setErrorMessage(err.message || 'Background GPS location error.');
+              }
+              return;
+            }
+
+            if (!pos) return;
+            processNewFix(
+              pos.latitude,
+              pos.longitude,
+              pos.speed,
+              pos.bearing,
+              pos.accuracy,
+              pos.time || Date.now()
+            );
+          }
+        );
+
+        backgroundWatcherIdRef.current = id;
+        return;
+      } catch (bgErr: any) {
+        console.warn('BackgroundGeolocation.addWatcher failed, falling back to foreground Geolocation.watchPosition:', bgErr);
+      }
+    }
+
+    // 3. Fallback to standard Geolocation.watchPosition (web browser / desktop)
     try {
       const id = await Geolocation.watchPosition(
         {
           enableHighAccuracy: true,
-          maximumAge: 1000,
+          maximumAge: Math.max(1000, getGpsProfileConfig(gpsProfileRef.current).intervalSeconds * 1000),
           timeout: 25000,
         },
         (pos: Position | null, err: any) => {
@@ -262,7 +477,7 @@ export function useGpsAutoLeg() {
             if (msg.includes('denied') || err?.code === 1) {
               setTrackingStatus('permission-denied');
               setErrorMessage(
-                "Location permission was denied. Please allow Location in Android Settings > Apps > Captain's Logger > Permissions."
+                "Location permission was denied. Please allow Location in browser / app settings."
               );
             } else if (msg.includes('unavailable') || err?.code === 2) {
               setErrorMessage('GPS position currently unavailable. Waiting for satellite fix...');
@@ -275,112 +490,43 @@ export function useGpsAutoLeg() {
           if (!pos || !pos.coords) return;
           const { latitude, longitude, speed, heading, accuracy } = pos.coords;
           const nowMs = pos.timestamp || Date.now();
-          const currentSpeedKts = mpsToKnots(speed);
 
-          const newFix: GpsFix = {
-            lat: latitude,
-            lon: longitude,
-            timestamp: nowMs,
-            accuracyMeters: accuracy != null ? Number(accuracy.toFixed(1)) : undefined,
-            speedKts: currentSpeedKts,
-            headingDeg: heading != null && !isNaN(heading) ? Math.round(heading) : undefined,
-          };
-
-          setCurrentFix(newFix);
-          setErrorMessage(null);
-          setTrackingStatus((prev) => (prev === 'permission-denied' || prev === 'error' ? 'tracking' : prev));
-
-          // If leg is currently active and not paused, accumulate nautical distance
-          const currentLeg = activeLegRef.current;
-          if (!currentLeg || currentLeg.isPaused) {
-            return;
-          }
-
-          const lastFix =
-            currentLeg.fixes.length > 0
-              ? currentLeg.fixes[currentLeg.fixes.length - 1]
-              : null;
-
-          let deltaNm = 0;
-          let shouldRecordFix = false;
-
-          if (!lastFix) {
-            // First fix of the leg
-            shouldRecordFix = true;
-          } else {
-            const isJitter = isGpsJitter(lastFix, latitude, longitude, accuracy);
-            if (!isJitter) {
-              deltaNm = haversineDistanceNm(
-                lastFix.lat,
-                lastFix.lon,
-                latitude,
-                longitude
-              );
-
-              // Record breadcrumb fix if boat moved at least 15 meters or 15 seconds passed
-              const movedMeters = haversineDistanceMeters(
-                lastFix.lat,
-                lastFix.lon,
-                latitude,
-                longitude
-              );
-              const timeSinceLastFixSec = (nowMs - lastFix.timestamp) / 1000;
-
-              if (movedMeters >= 15 || timeSinceLastFixSec >= 15) {
-                shouldRecordFix = true;
-              }
-            }
-          }
-
-          const nextDistanceNm = Number((currentLeg.distanceNm + deltaNm).toFixed(2));
-          const nextMaxSpeed = Math.max(currentLeg.maxSpeedKts || 0, currentSpeedKts);
-
-          // Avoid redundant state updates & localStorage JSON serialization when nothing changed
-          if (
-            !shouldRecordFix &&
-            nextDistanceNm === currentLeg.distanceNm &&
-            nextMaxSpeed === (currentLeg.maxSpeedKts || 0)
-          ) {
-            return;
-          }
-
-          let nextFixes = currentLeg.fixes;
-          if (shouldRecordFix) {
-            nextFixes = [...currentLeg.fixes, newFix];
-            if (nextFixes.length > MAX_BREADCRUMB_POINTS) {
-              // Keep first fix (departure) and trim oldest middle fixes
-              nextFixes = [
-                nextFixes[0],
-                ...nextFixes.slice(nextFixes.length - (MAX_BREADCRUMB_POINTS - 1)),
-              ];
-            }
-          }
-
-          const updatedLeg: ActiveAutoLeg = {
-            ...currentLeg,
-            distanceNm: nextDistanceNm,
-            maxSpeedKts: nextMaxSpeed,
-            fixes: nextFixes,
-          };
-
-          setActiveLeg(updatedLeg);
-          persistActiveLeg(updatedLeg);
+          processNewFix(
+            latitude,
+            longitude,
+            speed,
+            heading,
+            accuracy,
+            nowMs
+          );
         }
       );
-      watchIdRef.current = id;
+      foregroundWatchIdRef.current = id;
     } catch (watchErr: any) {
       console.warn('Geolocation.watchPosition failed:', watchErr);
       const msg = (watchErr?.message || '').toLowerCase();
       if (msg.includes('denied')) {
         setTrackingStatus('permission-denied');
         setErrorMessage(
-          "Location permission was denied. Please allow Location in Android Settings > Apps > Captain's Logger > Permissions."
+          "Location permission was denied. Please allow Location in browser / app settings."
         );
       } else {
         setErrorMessage(watchErr?.message || 'Failed to start GPS tracking.');
       }
     }
-  }, [persistActiveLeg, requestWakeLock, stopWatchingPosition]);
+  }, [processNewFix, requestWakeLock, stopWatchingPosition]);
+
+  // Dynamically reconfigure active GPS watcher when profile changes mid-track
+  const isInitialMountRef = useRef(true);
+  useEffect(() => {
+    if (isInitialMountRef.current) {
+      isInitialMountRef.current = false;
+      return;
+    }
+    if (backgroundWatcherIdRef.current !== null || foregroundWatchIdRef.current !== null) {
+      void startWatchingPosition();
+    }
+  }, [gpsProfile, startWatchingPosition]);
 
   // Resume tracking on mount if an unpaused active leg exists in storage
   useEffect(() => {
@@ -521,7 +667,11 @@ export function useGpsAutoLeg() {
     isWakeLockActive,
     elapsedSeconds,
     avgSpeedKts,
+    gpsProfile,
+    setGpsProfile,
+    activeProfileConfig: getGpsProfileConfig(gpsProfile),
     requestGpsPermission,
+    openDeviceSettings,
     startAutoLeg,
     pauseAutoLeg,
     resumeAutoLeg,

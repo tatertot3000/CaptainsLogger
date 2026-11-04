@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   Compass,
   Navigation,
@@ -29,6 +29,8 @@ import {
   Sun,
   AlertTriangle,
   Radio,
+  Settings,
+  Zap,
 } from 'lucide-react';
 import {
   CaptainsDatabase,
@@ -43,14 +45,18 @@ import {
 } from '../types';
 import { compressImageFile } from '../utils/vendors';
 import { IS_DEMO_MODE } from '../utils/demoMode';
+import { Capacitor } from '@capacitor/core';
 import { useGpsAutoLeg, CompletedLegSummary } from '../hooks/useGpsAutoLeg';
 import {
   toMarineCoordinates,
   degreesToCompassWithDegrees,
   formatElapsedDuration,
+  GPS_POLLING_PROFILES,
 } from '../utils/geo';
 import { LegTrackMap, MapLegData } from './LegTrackMap';
 import { PhotoLightboxModal } from './PhotoLightboxModal';
+import { AnchorWatchModal } from './AnchorWatchModal';
+import { useAnchorWatch } from '../hooks/useAnchorWatch';
 import {
   GpsDisclaimerModal,
   hasAcknowledgedGpsDisclaimer,
@@ -90,13 +96,51 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     isWakeLockActive,
     elapsedSeconds,
     avgSpeedKts,
+    gpsProfile,
+    setGpsProfile,
+    activeProfileConfig,
     requestGpsPermission,
+    openDeviceSettings,
     startAutoLeg,
     pauseAutoLeg,
     resumeAutoLeg,
     finishAutoLeg,
     cancelAutoLeg,
-  } = useGpsAutoLeg();
+  } = useGpsAutoLeg(
+    db.vessel?.gpsPollingProfile,
+    (newProfile) => {
+      onUpdateDb((prev) => ({
+        ...prev,
+        vessel: {
+          ...prev.vessel,
+          gpsPollingProfile: newProfile,
+        },
+      }));
+    }
+  );
+
+  const [showGpsProfileModal, setShowGpsProfileModal] = useState(false);
+
+  // Anchor Watch & Dragging Alarm Hook
+  const {
+    anchorWatch,
+    isArmed: isAnchorArmed,
+    distanceFromAnchorFeet,
+    distanceFromAnchorMeters,
+    swingRadiusFeet,
+    bearingCompass,
+    isBreached: isAnchorBreached,
+    radiusPercentage,
+    isAlarmSilenced,
+    swingHistory,
+    armAnchorWatch,
+    disarmAnchorWatch,
+    updateSwingRadius,
+    silenceAlarm,
+    resumeAlarm,
+  } = useAnchorWatch(currentFix);
+
+  const [showAnchorModal, setShowAnchorModal] = useState(false);
 
   // GPS Leg coordinates and track points state for saving with legs
   const [legDepartureCoords, setLegDepartureCoords] = useState<{ lat: number; lon: number } | undefined>();
@@ -154,6 +198,42 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   };
 
   const trips = useMemo(() => db.sailTrips || [], [db.sailTrips]);
+
+  // Unique previous trip titles for autofill & pulldown
+  const previousTripTitles = useMemo(() => {
+    const titles = new Set<string>();
+    trips.forEach((t) => {
+      if (t.title && t.title.trim()) {
+        titles.add(t.title.trim());
+      }
+    });
+    return Array.from(titles).sort((a, b) => a.localeCompare(b));
+  }, [trips]);
+
+  // Unique previous leg titles for autofill & pulldown
+  const previousLegTitles = useMemo(() => {
+    const titles = new Set<string>();
+    trips.forEach((t) => {
+      (t.legs || []).forEach((l) => {
+        if (l.title && l.title.trim()) {
+          titles.add(l.title.trim());
+        }
+      });
+    });
+    return Array.from(titles).sort((a, b) => a.localeCompare(b));
+  }, [trips]);
+
+  // Unique ports previously used across all legs
+  const previousPorts = useMemo(() => {
+    const ports = new Set<string>();
+    trips.forEach((t) => {
+      (t.legs || []).forEach((l) => {
+        if (l.departurePort && l.departurePort.trim()) ports.add(l.departurePort.trim());
+        if (l.arrivalPort && l.arrivalPort.trim()) ports.add(l.arrivalPort.trim());
+      });
+    });
+    return Array.from(ports).sort((a, b) => a.localeCompare(b));
+  }, [trips]);
 
   const openCreateTripModal = () => {
     setEditingTrip(null);
@@ -265,6 +345,30 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   const [legStartFuelPercent, setLegStartFuelPercent] = useState('');
   const [legEndFuelPercent, setLegEndFuelPercent] = useState('');
   const [syncVesselEngineHours, setSyncVesselEngineHours] = useState(true);
+
+  // Autofill leg form from a selected previous leg
+  const handleAutofillPreviousLeg = useCallback(
+    (selectedTitle: string) => {
+      setLegTitle(selectedTitle);
+      const allLegs = trips.flatMap((t) => t.legs || []);
+      const matchingLeg = allLegs.find((l) => l.title === selectedTitle);
+      if (matchingLeg) {
+        if (!legDeparturePort && matchingLeg.departurePort) {
+          setLegDeparturePort(matchingLeg.departurePort);
+        }
+        if (!legArrivalPort && matchingLeg.arrivalPort) {
+          setLegArrivalPort(matchingLeg.arrivalPort);
+        }
+        if (!legDistanceNm && matchingLeg.distanceNm !== undefined) {
+          setLegDistanceNm(String(matchingLeg.distanceNm));
+        }
+        if (matchingLeg.propulsionMode) {
+          setLegPropulsionMode(matchingLeg.propulsionMode);
+        }
+      }
+    },
+    [trips, legDeparturePort, legArrivalPort, legDistanceNm]
+  );
 
   // Step 1B.4 Crew Manifest, Anchorage & Passage Journal Notes, Photos
   const [legCrewText, setLegCrewText] = useState('');
@@ -789,7 +893,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     return {
       totalTrips: trips.length,
       totalLegs: totalLegsCount,
-      totalNm: Math.round(totalNm * 10) / 10,
+      totalNm: Number(totalNm.toFixed(2)),
       totalUnderwayHours,
       totalEngineHoursRun: Math.round(totalEngineHoursRun * 10) / 10,
       sailPercent,
@@ -902,7 +1006,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              All ({trips.length})
+              All
             </button>
             <button
               onClick={() => setStatusFilter('underway')}
@@ -914,7 +1018,6 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
             >
               <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
               <span>Underway</span>
-              <span className="text-[10px] opacity-80">({trips.filter((t) => t.status === 'underway').length})</span>
             </button>
             <button
               onClick={() => setStatusFilter('completed')}
@@ -925,9 +1028,31 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
               }`}
             >
               <span>Completed</span>
-              <span className="text-[10px] opacity-80 ml-1">({trips.filter((t) => t.status === 'completed').length})</span>
             </button>
           </div>
+
+          {/* Anchor Watch Button */}
+          <button
+            type="button"
+            onClick={() => setShowAnchorModal(true)}
+            className={`flex items-center gap-1.5 font-bold text-xs px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg transition shadow cursor-pointer shrink-0 border ${
+              isAnchorBreached
+                ? 'bg-rose-500 text-white border-rose-400 animate-pulse'
+                : isAnchorArmed
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500/30'
+                : 'bg-slate-900 border-amber-500/40 text-amber-300 hover:bg-slate-800 hover:border-amber-400'
+            }`}
+            title="Open Anchor Watch & Swing Alarm"
+          >
+            <Anchor className={`w-3.5 h-3.5 ${isAnchorArmed ? 'text-emerald-400' : 'text-amber-400'}`} />
+            <span>
+              {isAnchorBreached
+                ? 'Anchor Dragging!'
+                : isAnchorArmed
+                ? `Anchored (${distanceFromAnchorFeet}′)`
+                : 'Anchor Watch'}
+            </span>
+          </button>
 
           {/* New Voyage button */}
           <button
@@ -961,6 +1086,78 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
         </div>
       </div>
 
+      {/* Anchor Watch Persistent Status Banner */}
+      {isAnchorArmed && (
+        <div
+          className={`rounded-2xl p-3 sm:p-4 border transition cursor-pointer flex items-center justify-between gap-3 shadow-lg ${
+            isAnchorBreached
+              ? 'bg-rose-950/90 border-2 border-rose-500 text-rose-100 animate-pulse'
+              : 'bg-emerald-950/30 border-emerald-500/40 text-emerald-100 hover:bg-emerald-950/40'
+          }`}
+          onClick={() => setShowAnchorModal(true)}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border ${
+                isAnchorBreached
+                  ? 'bg-rose-500 text-white border-rose-400'
+                  : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+              }`}
+            >
+              <Anchor className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-extrabold text-xs sm:text-sm text-white">
+                  {isAnchorBreached ? '🚨 ANCHOR DRAGGING DETECTED!' : 'Anchor Watch Active'}
+                </span>
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.2 rounded-full uppercase ${
+                    isAnchorBreached
+                      ? 'bg-rose-500 text-white'
+                      : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  }`}
+                >
+                  {isAnchorBreached ? 'Exceeded Limit' : `${radiusPercentage}% of swing circle`}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 truncate mt-0.5">
+                Distance: <strong className={isAnchorBreached ? 'text-rose-300 font-mono' : 'text-white font-mono'}>{distanceFromAnchorFeet} ft</strong> of {swingRadiusFeet} ft allowed • Bearing to anchor: {bearingCompass}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+            {isAnchorBreached && (
+              isAlarmSilenced ? (
+                <button
+                  type="button"
+                  onClick={resumeAlarm}
+                  className="px-2.5 py-1.5 rounded-lg bg-rose-900 text-rose-100 font-bold text-xs"
+                >
+                  Resume Siren
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={silenceAlarm}
+                  className="px-2.5 py-1.5 rounded-lg bg-white text-rose-950 font-bold text-xs shadow"
+                >
+                  Silence
+                </button>
+              )
+            )}
+            <button
+              type="button"
+              onClick={() => setShowAnchorModal(true)}
+              className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs"
+            >
+              View Instrument
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Active GPS AutoLeg Cockpit HUD */}
       {activeLeg && (
         <div className="bg-gradient-to-br from-slate-900 via-slate-900 to-teal-950/40 border-2 border-teal-500/50 rounded-2xl p-4 sm:p-5 shadow-2xl space-y-4">
@@ -988,6 +1185,30 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                   {trips.find((t) => t.id === activeLeg.tripId)?.title || 'Active Voyage'}
                 </span>
               </span>
+
+              <button
+                type="button"
+                onClick={() => setShowGpsProfileModal(true)}
+                className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold bg-slate-950/90 hover:bg-slate-800 text-slate-200 border border-slate-700 hover:border-sky-500/60 px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full transition cursor-pointer shadow-sm"
+                title="Change GPS Polling Frequency & Battery Profile"
+              >
+                <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+                <span>{activeProfileConfig.label}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowAnchorModal(true)}
+                className={`inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold border px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full transition cursor-pointer shadow-sm ${
+                  isAnchorArmed
+                    ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/60'
+                    : 'bg-slate-950/90 hover:bg-slate-800 text-slate-300 border-slate-700 hover:border-amber-400/60'
+                }`}
+                title="Anchor Watch & Swing Alarm"
+              >
+                <Anchor className={`w-3 h-3 ${isAnchorArmed ? 'text-emerald-400' : 'text-amber-400'} shrink-0`} />
+                <span>{isAnchorArmed ? `Anchored (${distanceFromAnchorFeet}′)` : 'Anchor Watch'}</span>
+              </button>
 
               {isWakeLockActive && (
                 <span className="hidden sm:inline-flex items-center gap-1 text-[10px] bg-slate-800 text-amber-300 border border-slate-700 px-2 py-0.5 rounded-full font-medium">
@@ -1169,14 +1390,26 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                 <span className="break-words">{gpsErrorMessage}</span>
               </div>
               {trackingStatus === 'permission-denied' && (
-                <button
-                  type="button"
-                  onClick={() => requestGpsPermission()}
-                  className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition shrink-0 cursor-pointer shadow"
-                >
-                  <Radio className="w-3.5 h-3.5" />
-                  <span>Grant Permission</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => requestGpsPermission()}
+                    className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition shrink-0 cursor-pointer shadow"
+                  >
+                    <Radio className="w-3.5 h-3.5" />
+                    <span>Grant Permission</span>
+                  </button>
+                  {Capacitor.isNativePlatform() && (
+                    <button
+                      type="button"
+                      onClick={() => openDeviceSettings()}
+                      className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs px-3 py-1.5 rounded-lg transition shrink-0 cursor-pointer border border-slate-700"
+                    >
+                      <Settings className="w-3.5 h-3.5" />
+                      <span>App Settings</span>
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -1292,7 +1525,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                       <div className="text-right text-xs">
                         <div className="text-teal-400 font-mono font-bold flex items-center justify-end gap-1">
                           <Navigation className="w-3.5 h-3.5" />
-                          <span>{Math.round(tripNm * 10) / 10} NM</span>
+                          <span>{Number(tripNm.toFixed(2))} NM</span>
                         </div>
                         <div className="text-[11px] text-slate-400 mt-0.5">
                           {legCount} {legCount === 1 ? 'leg' : 'legs'}
@@ -1495,6 +1728,28 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                               >
                                 <Radio className="w-3.5 h-3.5 text-emerald-400" />
                                 <span>Start GPS AutoLeg</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowGpsProfileModal(true)}
+                                className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-slate-200 bg-slate-950/80 hover:bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg px-2 py-1 transition cursor-pointer"
+                                title="Configure GPS Polling Frequency & Battery Profile"
+                              >
+                                <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+                                <span className="hidden sm:inline">{activeProfileConfig.label}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowAnchorModal(true)}
+                                className={`flex items-center gap-1.5 text-[11px] font-bold rounded-lg px-2.5 py-1 transition cursor-pointer border ${
+                                  isAnchorArmed
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                                    : 'text-amber-300 bg-amber-950/40 hover:bg-amber-900/60 border border-amber-700/60'
+                                }`}
+                                title="Open Anchor Watch & Swing Alarm"
+                              >
+                                <Anchor className="w-3.5 h-3.5 text-amber-400" />
+                                <span>{isAnchorArmed ? `Anchored (${distanceFromAnchorFeet}′)` : 'Anchor Watch'}</span>
                               </button>
                             </div>
                           ) : null
@@ -1893,11 +2148,31 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
 
             {/* Title */}
             <div>
-              <label className="block text-xs text-slate-400 mb-1 font-semibold">
-                Voyage Title
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-xs text-slate-400 font-semibold">
+                  Voyage Title
+                </label>
+                {previousTripTitles.length > 0 && (
+                  <select
+                    className="text-[11px] bg-slate-900 border border-slate-700 text-sky-300 rounded px-2 py-0.5 max-w-[190px] sm:max-w-[240px] truncate focus:outline-none focus:border-sky-500 cursor-pointer"
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setTripTitle(e.target.value);
+                        e.target.value = '';
+                      }
+                    }}
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Select previous voyage...</option>
+                    {previousTripTitles.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
               <input
                 type="text"
+                list="previous-trip-titles"
                 required
                 placeholder="e.g., San Juan Islands Summer Cruise, Day Sail to Edmonds..."
                 value={tripTitle}
@@ -1905,6 +2180,11 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
                 autoFocus
               />
+              <datalist id="previous-trip-titles">
+                {previousTripTitles.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
             </div>
 
             {/* Date Range */}
@@ -2125,16 +2405,41 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
 
               {/* Leg Title (Optional) */}
             <div>
-              <label className="block text-xs text-slate-400 mb-1 font-semibold">
-                Leg Name / Identifier <span className="text-[10px] text-slate-500 font-normal">(optional)</span>
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-xs text-slate-400 font-semibold">
+                  Leg Name / Identifier <span className="text-[10px] text-slate-500 font-normal">(optional)</span>
+                </label>
+                {previousLegTitles.length > 0 && (
+                  <select
+                    className="text-[11px] bg-slate-900 border border-slate-700 text-teal-300 rounded px-2 py-0.5 max-w-[190px] sm:max-w-[240px] truncate focus:outline-none focus:border-teal-500 cursor-pointer"
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleAutofillPreviousLeg(e.target.value);
+                        e.target.value = '';
+                      }
+                    }}
+                    defaultValue=""
+                  >
+                    <option value="" disabled>Select previous leg...</option>
+                    {previousLegTitles.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
               <input
                 type="text"
+                list="previous-leg-titles"
                 placeholder="e.g., Leg 1: Anacortes to Rosario Resort"
                 value={legTitle}
                 onChange={(e) => setLegTitle(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-teal-500"
               />
+              <datalist id="previous-leg-titles">
+                {previousLegTitles.map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
             </div>
 
             {/* Departure & Arrival Ports */}
@@ -2146,6 +2451,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                 </label>
                 <input
                   type="text"
+                  list="previous-ports-list"
                   required
                   placeholder="e.g., Cap Sante Marina"
                   value={legDeparturePort}
@@ -2160,6 +2466,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                 </label>
                 <input
                   type="text"
+                  list="previous-ports-list"
                   required
                   placeholder="e.g., Rosario Resort"
                   value={legArrivalPort}
@@ -2168,6 +2475,11 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                 />
               </div>
             </div>
+            <datalist id="previous-ports-list">
+              {previousPorts.map((p) => (
+                <option key={p} value={p} />
+              ))}
+            </datalist>
 
             {/* Departure & Arrival Time Pickers */}
             <div className="space-y-1.5">
@@ -2225,9 +2537,9 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                 </label>
                 <input
                   type="number"
-                  step="0.1"
+                  step="0.01"
                   min="0"
-                  placeholder="e.g., 18.5"
+                  placeholder="e.g., 18.25"
                   value={legDistanceNm}
                   onChange={(e) => setLegDistanceNm(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
@@ -2404,7 +2716,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                   </label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.01"
                     min="0"
                     placeholder={
                       db.vessel?.currentEngineHours
@@ -2422,7 +2734,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                   </label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.01"
                     min="0"
                     placeholder="e.g. 844.5"
                     value={legEndEngineHours}
@@ -2650,6 +2962,119 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
           onClose={() => setPreviewPhotoUrl(null)}
         />
       )}
+
+      {/* GPS Polling & Battery Profile Modal */}
+      {showGpsProfileModal && (
+        <div
+          className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4"
+          onClick={() => setShowGpsProfileModal(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-4 sm:p-5 space-y-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap className="w-5 h-5 text-amber-400" />
+                <h3 className="text-base font-bold text-white">GPS Polling &amp; Battery Profile</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGpsProfileModal(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Adjust how frequently the satellite receiver polls your position during passage tracking. Lower polling rates conserve battery and keep your phone cooler during offshore legs.
+            </p>
+
+            <div className="space-y-2">
+              {Object.values(GPS_POLLING_PROFILES).map((prof) => {
+                const isSelected = gpsProfile === prof.id;
+                return (
+                  <button
+                    key={prof.id}
+                    type="button"
+                    onClick={() => {
+                      setGpsProfile(prof.id);
+                      setShowGpsProfileModal(false);
+                    }}
+                    className={`w-full text-left p-3 rounded-xl border transition cursor-pointer flex items-center justify-between gap-3 ${
+                      isSelected
+                        ? 'bg-sky-500/15 border-sky-500 text-sky-100 ring-1 ring-sky-500/50'
+                        : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-950/80'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-xs text-white">{prof.label}</span>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider ${
+                            prof.id === 'high'
+                              ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                              : prof.id === 'balanced'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                              : prof.id === 'cruising'
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                              : 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
+                          }`}
+                        >
+                          {prof.batteryHint}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-1">{prof.description}</p>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <div className="text-[11px] font-mono font-bold text-sky-300">
+                        {prof.intervalSeconds}s ping
+                      </div>
+                      <div className="text-[10px] font-mono text-slate-500">
+                        {prof.distanceFilterMeters === 0 ? 'No filter' : `±${prof.distanceFilterMeters}m filter`}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowGpsProfileModal(false)}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-4 py-2 rounded-xl transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Anchor Watch & Swing Alarm Modal */}
+      <AnchorWatchModal
+        isOpen={showAnchorModal}
+        onClose={() => setShowAnchorModal(false)}
+        currentFix={currentFix}
+        anchorWatch={anchorWatch}
+        isArmed={isAnchorArmed}
+        distanceFromAnchorFeet={distanceFromAnchorFeet}
+        distanceFromAnchorMeters={distanceFromAnchorMeters}
+        swingRadiusFeet={swingRadiusFeet}
+        bearingCompass={bearingCompass}
+        isBreached={isAnchorBreached}
+        radiusPercentage={radiusPercentage}
+        isAlarmSilenced={isAlarmSilenced}
+        swingHistory={swingHistory}
+        onArm={armAnchorWatch}
+        onDisarm={disarmAnchorWatch}
+        onUpdateRadius={updateSwingRadius}
+        onSilenceAlarm={silenceAlarm}
+        onResumeAlarm={resumeAlarm}
+      />
 
       {/* GPS Navigational Safety Disclaimer Modal */}
       {gpsDisclaimerTrip && (

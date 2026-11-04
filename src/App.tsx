@@ -240,9 +240,14 @@ export const App: React.FC = () => {
   }, [db.schedules, db.vessel.currentEngineHours]);
   const lowSparesCount = useMemo(
     () =>
-      db.parts.filter(
-        (p) => p.trackQuantity !== false && p.quantityOnBoard < p.minQuantity
-      ).length,
+      db.parts.filter((p) => {
+        if (p.trackQuantity === false) return false;
+        const qty =
+          p.itemType === 'consumable' && p.containers && p.containers.length > 0
+            ? p.containers.reduce((sum, c) => sum + (c.quantityRemaining || 0), 0)
+            : p.quantityOnBoard;
+        return qty <= p.minQuantity;
+      }).length,
     [db.parts]
   );
   const fuelStats = useMemo(
@@ -471,9 +476,12 @@ export const App: React.FC = () => {
             </div>
             <div className="text-[11px] sm:text-xs font-bold mt-0.5 truncate">
               {lowSparesCount > 0 ? (
-                <span className="text-rose-300 truncate">{lowSparesCount} Low Stock</span>
+                <span className="text-rose-400 flex items-center gap-1 truncate">
+                  <AlertTriangle className="w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0" />
+                  <span>Low Supply</span>
+                </span>
               ) : (
-                <span className="text-emerald-400 truncate">{db.parts.length} Stocked</span>
+                <span className="text-emerald-400 truncate">Good Supply</span>
               )}
             </div>
           </button>

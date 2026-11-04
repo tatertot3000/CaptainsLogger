@@ -1,149 +1,115 @@
-# Captain's Logger — Sailboat Navigation, Passage & Maintenance PWA
+# Captain's Logger — Mobile Vessel Maintenance & Passage Logbook
 
-An offline-first Progressive Web App (PWA) and Android application designed for cruisers, coastal skippers, and offshore sailors to replace paper logbooks, maintenance binders, fuel logs, and spare parts catalogs.
+A mobile application for boat owners to manage vessel maintenance, track spare parts inventory, and log passages with GPS.
 
-Designed & Developed by **Eddie Fiorelli**.  
+Designed & Developed by **Eddie Fiorelli**  
 *Copyright © 2026 Eddie Fiorelli. Licensed under the GNU General Public License v3.0 (GPL-3.0).*
 
 ---
 
-## About Captain's Logger
+## Overview
 
-**Captain's Logger** is a modern, cockpit-ready digital vessel logbook built specifically for life at sea. Cellular coverage often disappears long before you reach your destination. Engineered from the keel up with an **offline-first architecture** (`IndexedDB`, `localStorage`, and Service Workers), all passage tracking, chart tools, maintenance logs, and equipment catalogs remain 100% accessible offshore with zero network connection.
+Captain's Logger started as a personal project to move to a digital and portable maintenance logbook. 
 
----
+What began as a tool to digitize mechanical service records and manage spare parts inventory expanded into a complete digital ship's logbook. In addition to preventative maintenance, the app now handles real-time GPS passage recording (including background tracking with the phone locked), offline marine charts, equipment manuals, inspection photos, fuel burn tracking, and optional multi-device cloud synchronization.
 
-## Key Features
-
-### 🗺️ Interactive Marine Navigation Charts & GPS Tracks
-* **Multi-Layer Leaflet Marine Chart**: Switch seamlessly between:
-  * **Ocean Chart**: Clean OpenStreetMap base with marine contours.
-  * **Satellite Imagery**: High-resolution ESRI World Imagery for harbor entrances and anchorages.
-  * **Night Cockpit**: High-contrast, dark-filtered chart designed for red-light preservation at the helm without third-party API keys or watermarks.
-* **OpenSeaMap Navigational Seamarks Overlay**: Toggle live seamarks including navigation buoys, lighthouses, sector lights, beacons, and lateral/cardinal marks.
-* **Passage Track Visualizer**: Renders completed and underway passage legs with distinct color-coded route lines, departure/arrival markers, and waypoint coordinates.
-* **Live Vessel GPS Telemetry**: Real-time GPS vessel position marker with heading arrow, pulsating fix ring, and continuous breadcrumb track logging.
-* **Cockpit HUD & Modal Modes**: View maps inline within the active AutoLeg HUD or expand to full-screen interactive modal view.
-
-### 📥 Offline Marine Chart Pack Downloader
-* **Offshore Tile Caching**: Download and store high-resolution chart tile packs directly onto your device before dropping lines.
-* **Custom Nautical Mile Radius**: Quick-select **10 NM** (~3 MB), **25 NM** (~10 MB), or **50 NM** (~18 MB) presets, or adjust a custom radius slider up to 50 NM.
-* **Multi-Zoom Coverage**: Packages zoom levels 7 through 13 covering coastal cruising areas and harbor approaches.
-* **Storage & Cache Manager**: Real-time progress bar during downloads, estimated download sizes, cached tile count display, and one-tap cache clearing.
-* **Offline Fallback Tile Layer**: Automatically serves cached tiles when operating out of cellular range.
-
-### 📡 GPS AutoLeg & Hands-Free Passage Recording
-* **Live Cockpit Telemetry**: Tracks real-time **Speed Over Ground (SOG)** in knots, **Course Over Ground (COG)** with 16-point compass rose degrees, and distance run in **Nautical Miles (NM)** via Haversine calculation.
-* **Native Android GPS with Wake-Lock**: Background location tracking powered by `@capacitor/geolocation` and native Android permissions (`ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`, `WAKE_LOCK`), preventing screen sleep while underway.
-* **Pause / Resume Controls**: Pause tracking during lunch stops, waiting for bridge openings, or temporary anchoring without fragmenting your passage log.
-* **One-Tap Finish & Sync**: Automatically populates departure and arrival times, ports, coordinates, distance, max/average speeds, and attaches high-resolution GPS breadcrumb tracks directly into the Leg Logbook.
-
-### ⚠️ GPS Navigational Safety Warning & Maritime Disclaimer
-* **Prominent Advisory Splash**: Displays an amber maritime safety modal before activating GPS tracking.
-* **Informational Aid Notice**: Explicitly clarifies that Captain's Logger is an electronic logbook and supplemental aid, **not a certified ECDIS** or primary navigation system.
-* **Prudent Seamanship & COLREGS**: Reminds the skipper of their legal duty under Rule 5 of the International Regulations for Preventing Collisions at Sea (COLREGS) to maintain a proper look-out at all times and cross-reference official government hydrographic charts (NOAA, UKHO, CHS).
-* **Voyage Memory**: *"Do not prompt again during this voyage"* option persists your acknowledgement in `localStorage` per passage so subsequent leg tracking remains seamless.
-
-### 📷 Interactive Photo Lightbox with Zoom, Rotate & Download
-* **High-Resolution Inspection & Passage Photos**: Full-screen lightbox viewer integrated across the Passage Journal, Maintenance Logbook, and Parts Catalog.
-* **Multi-Touch & Mouse Zoom**: Pinch-to-zoom on mobile or use mouse wheel / zoom buttons up to **5x magnification**.
-* **Pan & Inspect**: Click-and-drag or touch-drag across enlarged photos to inspect engine serial numbers, rigging details, or passage photos.
-* **90° Rotation**: Rotate photos on the fly to correct mobile orientation.
-* **Export & Sharing**: One-tap direct file download, plus native Android Share Sheet integration via `@capacitor/share`.
-
-### ⛵ Sail & Passage Logbook
-* **Multi-Leg Voyages & Cruises**: Organize seasonal cruises and multi-day voyages into sequential passage legs with live status tracking (*Underway* vs *Completed*).
-* **Rollup Navigation Metrics**: Tracks total distance in **Nautical Miles (NM)**, hours underway, engine run hours, and sail-to-motor propulsion ratio.
-* **Marine Conditions & Sail Trim**: Record wind speed, gusts, direction, sea state (*Calm*, *Slight*, *Moderate*, *Rough*, *Heavy*), sky conditions, barometric pressure, point of sail, and sails hoisted.
-* **Engine Hours & Fuel Tracking**: Auto-calculates engine run time and fuel burn delta per leg, with one-click automatic synchronization with the vessel's master engine hours log.
-* **Crew Manifest & Mooring Details**: Keep a crew/guest manifest, record marina slips, mooring balls, anchor scope, and holding notes.
-
-### 🤖 Automated Android APK CI/CD
-* **GitHub Actions Workflow**: Automated build pipeline (`.github/workflows/build-android-apk.yml`) compiles debug and signed release APKs on every tag or push.
-* **Manifest Permissions Injection**: Automated build script (`.github/android/inject-manifest-permissions.js`) injects required GPS, location, and wake-lock permissions during CI.
-* **GitHub Releases**: Automatically attaches installable `.apk` assets to GitHub Releases for direct side-loading onto boat phones and cockpit tablets.
-
-### 🏷️ Customizable Vessel Insignia & Builder Logos
-* **Quick-Tap Title Bar Emblems**: Tap the header emblem to instantly pick your builder's insignia or nautical symbol:
-  * **Hunter Marine** (chevron & sail sweep)
-  * **Catalina Yachts** (diamond & sail insignia)
-  * **Bénéteau** (seahorse insignia)
-  * **Jeanneau** (compass star emblem)
-  * **Bavaria Yachts** (crossed sails & crest)
-  * **Island Packet** (anchor & cutter crest)
-  * **Nautical Classics** (Classic Compass, Fouled Anchor, Sloop Underway, Ship's Helm)
-* **Custom Burgee / Emblem Upload**: Upload your yacht club burgee or custom boat graphic with client-side image compression.
-
-### 🖼️ Optional Vessel Wallpaper & Background Themes
-* **100% Optional & Default-Off**: Keeps the sleek dark slate theme unless explicitly enabled.
-* **Custom Boat Photo Upload**: Upload a photo of your sailboat at anchor or underway to use as a personalized background.
-* **Curated Presets**: Quick-select from presets like *Deep Ocean Wake*, *Golden Sunset*, *Glassy Anchorage*, and *Night Ocean*.
-* **Backdrop Dimming & Opacity Slider**: Adjust brightness (`5% - 45%`) with a live preview box to keep all gauges, dials, and text crisp and readable.
-* **Night-Vision Protected**: The wallpaper automatically turns red-monochrome when night watch mode is engaged.
-
-### 🔧 Maintenance Schedules & Service Logbook
-* **Hourly & Calendar Intervals**: Track tasks by engine hours (e.g., every 100h), calendar days (e.g., 365d), or as-needed.
-* **Smart Alert Flags**: Automatically highlights **Overdue** and **Due Soon** items.
-* **Auto-Inventory Deduction**: Deducts parts and consumable additives (quarts, ounces, liters) from your on-board spares when logging maintenance.
-* **Inspection Photos**: Attach before/after service photos to any log entry.
-
-### ⛽ Diesel & Gasoline Fuel Log & Tank Level Estimator
-* **Selectable Fuel Type**: Supports both **Diesel** and **Gasoline (Gas)** auxiliary engines and outboards.
-* **Fill-Up Logging**: Log fuel additions with engine hours, gallons, price/gal, and fuel treatment additives.
-* **Burn Rate & Range Estimations**: Calculates average GPH (gallons per hour), estimated fuel remaining in the tank, and remaining motoring range.
-
-### 📦 Equipment & Parts Catalog with Live Vendor Lookup
-* **OEM & Aftermarket Cross-References**: Store part numbers across `Yanmar`, `Racor`, `Sierra`, `Baldwin`, `Wix`, and `Jabsco`.
-* **On-Board Locker Mapping**: Record the exact shelf, bin, or locker location on your vessel.
-* **One-Tap Vendor Shopping**: Instantly check price & availability across **Defender Marine**, **West Marine**, **Fisheries Supply**, **Amazon**, and **Google Shopping**.
-
-### 🔴 Red-Light Night Watch Mode
-* Built-in red night-vision toggle in the top bar to preserve night vision during overnight passages.
-
-### 💾 100% Offline Storage + Multi-Layer Sync
-* **Layer 1 (Offline Device Storage)**: Powered by `IndexedDB` and `localStorage` so it functions offshore with zero cellular connection.
-* **Layer 2 (Option A — PC Hard Drive Auto-Save)**: Automatic local backup to `data/captains-log.json`.
-* **Layer 3 (Option B — Supabase Cloud Sync)**: Real-time cloud synchronization between your phone, tablet, and PC.
-* **Export & Backup**: Full `.json` database backups and `.csv` spreadsheet exports (compatible with Android's native share sheet for Google Drive).
+The app works 100% offline using local device storage, making it fully functional offshore without cell coverage. When you back to service, seamless online backup options are available. Look at your logbook from your phone on the boat or at home on your PC via the webapp. If enabled, the app remains synced at all times. The ability to download and save human readability JSON files, also is avialble to those who dont want online integration.
 
 ---
 
-## Quick Start
+## 1. Vessel Maintenance & Systems Management
+
+The primary focus of Captain's Logger is keeping your vessel mechanically sound and organized.
+
+### Service Schedules & Maintenance Logging
+* **Engine Hour & Calendar Tracking**: Set service intervals by engine hours (e.g. every 100 hrs), calendar days (e.g. annual winterization), or one-off tasks.
+* **Overdue & Due Soon Alerts**: Automated status warnings calculate remaining hours and days for every scheduled item.
+* **Automatic Inventory Deduction**: Completing a service task (such as an oil or impeller change) automatically deducts the required parts and fluid volumes from your on-board stock.
+* **PDF Equipment Manuals Locker**: Store and view manufacturer service manuals, wiring schematics, and parts catalogs directly in the app for offline troubleshooting in the engine compartment.
+
+### Spare Parts & Consumables Inventory
+* **Locker & Bin Location Mapping**: Log the exact stowage location (locker, bin, shelf) for every part so items can be located quickly.
+* **Cross-Reference Part Numbers**: Save OEM and aftermarket alternatives (Yanmar, Racor, Sierra, Baldwin, Wix, Jabsco).
+* **Fluid Tracking**: Track bulk fluids (oil, coolant, transmission fluid, fuel additives) with fractional quantity tracking (quarts, ounces, liters).
+* **Vendor Lookup**: Quick links to search part availability and pricing on Defender, West Marine, Fisheries Supply, and Amazon.
+
+### Fuel Logging & Engine Telemetry
+* **Fill-Up Records**: Log gallons added, price per gallon, engine hours, and fuel treatments.
+* **Burn Rate & Range**: Computes average Gallons Per Hour (GPH), variance against baseline burn rate, and estimated remaining motoring range.
+* **Diesel & Gasoline**: Configurable for diesel inboards, gasoline engines, and outboard motors.
+
+---
+
+## 2. Passage Logging & GPS Tracking
+
+Once vessel systems are managed, Captain's Logger handles passage recording underway.
+
+### GPS AutoLeg Passage Tracking
+* **Locked-Screen Background Tracking**: Records GPS position, Speed Over Ground (SOG), and Course Over Ground (COG) even when the phone is locked or in your pocket. Uses an Android foreground service with a persistent status notification to prevent the OS from killing the GPS stream.
+* **High-Precision Distance**: Tracks nautical miles in **`0.01` NM increments** (~18.5 meters).
+* **Autofill for Recurring Trips**: Dropdown menus remember previous voyage and leg names, auto-populating departure port, arrival port, distance, and propulsion mode for frequent routes.
+* **Underway Conditions**: Record wind speed, gusts, direction, sea state, barometric pressure, sail trim, engine run hours, and crew manifests.
+* **Anchor Watch & Dragging Alarm**: Set an allowed swing radius or use the built-in rode scope calculator (depth + freeboard × 5:1 or 7:1 scope). Monitors boat drift with real-time distance readouts, visual swing circle on charts, swing breadcrumb trails, and an audible marine siren with vibration alerts.
+* **Configurable GPS Polling & Battery Profiles**: Select between Real-Time (1s), Balanced (5s), Cruising (15s), Offshore (30s), or Ocean (60s) to balance tracking resolution against device battery life.
+
+### Marine Charts & Offline Navigation
+* **Multi-Layer Charts**: Switch between standard marine contours, satellite imagery for harbor approaches, and a high-contrast night chart.
+* **OpenSeaMap Seamarks**: Toggle navigational aids including buoys, lighthouses, sector lights, and beacons.
+* **Recenter Boat & Fit Route**: One-tap buttons to center the chart on the vessel's live GPS fix or zoom out to view the entire passage route.
+* **Offline Chart Packs**: Download and cache chart tiles for offline navigation before heading offshore (select 10 NM, 25 NM, or 50 NM radii).
+
+---
+
+## Additional Capabilities
+
+* **Inspection Photo Lightbox**: Attach high-resolution photos to maintenance logs, parts, or passage entries. View photos with full-screen pinch-to-zoom (up to 5x), rotation, and sharing.
+* **Red-Light Night Watch Mode**: Dedicated top-bar toggle switches the interface to red-on-black to preserve night vision.
+* **Offline-First Storage**: All data lives locally on your device in `IndexedDB`. No network connection is required.
+* **Optional Cloud Sync**: Connect to a free personal [Supabase](https://supabase.com) database to sync logs across phones, tablets, and computers.
+* **Data Sovereignty**: Export your entire database to `.json` or spreadsheets to `.csv` at any time. No ads, tracking, or telemetry.
+* **Maritime Safety Notice**: Built-in navigational safety disclaimer reminding operators of COLREGS Rule 5 obligations (supplemental aid, not a certified ECDIS).
+
+---
+
+## Installing on Android
+
+1. Download the latest `CaptainsLogger.apk` from [**GitHub Releases**](https://github.com/tatertot3000/CaptainsLogger/releases).
+2. Open the file on your device to install (allow *"Install from unknown sources"* if prompted).
+3. To enable continuous GPS tracking while the screen is locked, go to:  
+   **Android Settings > Apps > Captain's Logger > Permissions > Location** and select **"Allow all the time"**.
+
+---
+
+## Development
 
 ```bash
-# 1. Install dependencies
+# Clone repository
+git clone https://github.com/tatertot3000/CaptainsLogger.git
+cd CaptainsLogger
+
+# Install dependencies
 npm install
 
-# 2. Start local development server with network access for phones/tablets
+# Start local dev server (accessible across your local Wi-Fi)
 npm run dev -- --host
 
-# 3. Build production bundle with PWA service worker
+# Build production bundle
 npm run build
 
-# 4. Build demo bundle (with preloaded sample voyages, tracks & maintenance records)
+# Build demo bundle (preloaded with sample vessel data)
 npm run build:demo
 ```
 
 ---
 
-## Documentation Guides
+## Documentation
 
-* [**WINDOWS_INSTALL_GUIDE.md**](./WINDOWS_INSTALL_GUIDE.md) — Beginner-friendly guide for installing Node.js, setting up dependencies, and running the app as a standalone Windows desktop app.
-* [**STORAGE_AND_SYNC_GUIDE.md**](./STORAGE_AND_SYNC_GUIDE.md) — Complete guide on local offline storage, PC hard drive auto-saving, and Supabase cloud synchronization.
-
----
-
-## Contact & Feedback
-
-Have questions, feedback, or feature requests? Reach out directly via GitHub:
-* **GitHub Profile & Repository**: [github.com/tatertot3000/CaptainsLogger](https://github.com/tatertot3000/CaptainsLogger)
-* **Questions & Issue Tracker**: [Open an Issue on GitHub](https://github.com/tatertot3000/CaptainsLogger/issues)
+* [**STORAGE_AND_SYNC_GUIDE.md**](./STORAGE_AND_SYNC_GUIDE.md) — Offline storage, local backups, and Supabase cloud setup.
+* [**WINDOWS_INSTALL_GUIDE.md**](./WINDOWS_INSTALL_GUIDE.md) — Running the app on a Windows PC.
 
 ---
 
-## License & Copyright
+## License
 
 **Copyright (C) 2026 Eddie Fiorelli.**  
-This program is free software: you can redistribute it and/or modify it under the terms of the **GNU General Public License v3.0 (GPL-3.0)** as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful, but **WITHOUT ANY WARRANTY**; without even the implied warranty of **MERCHANTABILITY** or **FITNESS FOR A PARTICULAR PURPOSE**. See the [`LICENSE`](./LICENSE) file for the full license text.
+Licensed under the **GNU General Public License v3.0 (GPL-3.0)**. See the [`LICENSE`](./LICENSE) file for details.
