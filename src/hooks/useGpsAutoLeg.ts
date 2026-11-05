@@ -92,6 +92,9 @@ export function useGpsAutoLeg(
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isWakeLockActive, setIsWakeLockActive] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [isAnchorWatchActive, setIsAnchorWatchActive] = useState(false);
+  const isAnchorWatchActiveRef = useRef(false);
+  isAnchorWatchActiveRef.current = isAnchorWatchActive;
 
   const backgroundWatcherIdRef = useRef<string | null>(null);
   const foregroundWatchIdRef = useRef<string | number | null>(null);
@@ -421,13 +424,21 @@ export function useGpsAutoLeg(
     // 2. On native Android: Start Background Geolocation service with persistent ongoing notification
     if (Capacitor.isNativePlatform()) {
       try {
+        const isAnchoredOnly = Boolean(
+          isAnchorWatchActiveRef.current && (!activeLegRef.current || activeLegRef.current.isPaused)
+        );
         const id = await BackgroundGeolocation.addWatcher(
           {
-            backgroundTitle: "Captain's Logger — Passage Tracking",
-            backgroundMessage: `Recording GPS track (${getGpsProfileConfig(gpsProfileRef.current).label})...`,
+            backgroundTitle: isAnchoredOnly
+              ? "Captain's Logger — Anchor Watch"
+              : "Captain's Logger — Passage Tracking",
+            backgroundMessage: isAnchoredOnly
+              ? 'Monitoring anchor swing radius & drag alarm...'
+              : `Recording GPS track (${getGpsProfileConfig(gpsProfileRef.current).label})...`,
             requestPermissions: true,
             stale: false,
-            distanceFilter: getGpsProfileConfig(gpsProfileRef.current).distanceFilterMeters,
+            // Keep native displacement filter at 0 so Android emits updates continuously when slow/drifting/anchored
+            distanceFilter: 0,
           },
           (pos?: Location, err?: any) => {
             if (err) {
@@ -537,6 +548,19 @@ export function useGpsAutoLeg(
       stopWatchingPosition();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep background GPS alive when Anchor Watch is armed, even without an active passage leg
+  useEffect(() => {
+    if (isAnchorWatchActive) {
+      if (backgroundWatcherIdRef.current === null && foregroundWatchIdRef.current === null) {
+        startWatchingPosition();
+      }
+    } else {
+      if (!activeLegRef.current || activeLegRef.current.isPaused) {
+        stopWatchingPosition();
+      }
+    }
+  }, [isAnchorWatchActive, startWatchingPosition, stopWatchingPosition]);
 
   // User Action: Start AutoLeg
   const startAutoLeg = useCallback(
@@ -672,6 +696,8 @@ export function useGpsAutoLeg(
     activeProfileConfig: getGpsProfileConfig(gpsProfile),
     requestGpsPermission,
     openDeviceSettings,
+    isAnchorWatchActive,
+    setIsAnchorWatchActive,
     startAutoLeg,
     pauseAutoLeg,
     resumeAutoLeg,

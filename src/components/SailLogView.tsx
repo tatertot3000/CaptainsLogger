@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Compass,
   Navigation,
@@ -101,6 +101,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     activeProfileConfig,
     requestGpsPermission,
     openDeviceSettings,
+    setIsAnchorWatchActive,
     startAutoLeg,
     pauseAutoLeg,
     resumeAutoLeg,
@@ -139,6 +140,11 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     silenceAlarm,
     resumeAlarm,
   } = useAnchorWatch(currentFix);
+
+  // Keep background GPS alive when Anchor Watch is armed even if passage is not underway
+  useEffect(() => {
+    setIsAnchorWatchActive(isAnchorArmed);
+  }, [isAnchorArmed, setIsAnchorWatchActive]);
 
   const [showAnchorModal, setShowAnchorModal] = useState(false);
 
@@ -198,6 +204,17 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   };
 
   const trips = useMemo(() => db.sailTrips || [], [db.sailTrips]);
+
+  // Self-healing: if an active autoleg exists in storage but its voyage was deleted, clean it up
+  useEffect(() => {
+    if (activeLeg && trips.length > 0) {
+      const tripExists = trips.some((t) => t.id === activeLeg.tripId);
+      if (!tripExists) {
+        console.warn(`Cleaning up orphaned active AutoLeg for deleted voyage: ${activeLeg.tripId}`);
+        cancelAutoLeg();
+      }
+    }
+  }, [activeLeg, trips, cancelAutoLeg]);
 
   // Unique previous trip titles for autofill & pulldown
   const previousTripTitles = useMemo(() => {
@@ -311,9 +328,31 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     if (!window.confirm('Are you sure you want to delete this voyage and all its logged legs?')) {
       return;
     }
+    // Cancel active autoleg if it was tracking for this voyage to avoid leaving the app permanently underway
+    if (activeLeg && activeLeg.tripId === tripId) {
+      cancelAutoLeg();
+    }
     onUpdateDb((prev) => ({
       ...prev,
       sailTrips: (prev.sailTrips || []).filter((t) => t.id !== tripId),
+    }));
+  };
+
+  const handleToggleTripStatus = (tripId: string) => {
+    onUpdateDb((prev) => ({
+      ...prev,
+      sailTrips: (prev.sailTrips || []).map((t) => {
+        if (t.id !== tripId) return t;
+        const nextStatus = t.status === 'underway' ? 'completed' : 'underway';
+        return {
+          ...t,
+          status: nextStatus,
+          endDate:
+            nextStatus === 'completed' && !t.endDate
+              ? new Date().toISOString().slice(0, 10)
+              : t.endDate,
+        };
+      }),
     }));
   };
 
@@ -598,12 +637,34 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   };
 
   const handleFinishAutoLegClick = (targetTripId?: string) => {
-    const tripToFinish = trips.find((t) => t.id === (targetTripId || activeLeg?.tripId));
+    const tripIdToFind = targetTripId || activeLeg?.tripId;
+    let tripToFinish = trips.find((t) => t.id === tripIdToFind);
+
+    // Fallback: If trip was deleted or missing, attach to an underway or latest trip
+    if (!tripToFinish && trips.length > 0) {
+      tripToFinish = trips.find((t) => t.status === 'underway') || trips[0];
+    }
+
     const summary = finishAutoLeg();
     if (!summary) return;
 
     if (tripToFinish) {
       openCreateLegModalWithGps(tripToFinish, summary);
+    } else {
+      // If no voyages exist at all, generate a default voyage and attach leg
+      const defaultTripId = 'trip-' + Date.now();
+      const newTrip: SailTrip = {
+        id: defaultTripId,
+        title: 'Voyage ' + new Date().toLocaleDateString(),
+        startDate: new Date().toISOString().slice(0, 10),
+        status: 'underway',
+        legs: [],
+      };
+      onUpdateDb((prev) => ({
+        ...prev,
+        sailTrips: [newTrip, ...(prev.sailTrips || [])],
+      }));
+      openCreateLegModalWithGps(newTrip, summary);
     }
   };
 
@@ -1487,25 +1548,35 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                   {/* Row 1: Status & Date Badges + Stats & Action Buttons */}
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap min-w-0">
-                      <span
-                        className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border flex items-center gap-1 ${
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleTripStatus(trip.id);
+                        }}
+                        className={`text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full border flex items-center gap-1 transition cursor-pointer hover:scale-105 ${
                           trip.status === 'underway'
-                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                            : 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                            : 'bg-sky-500/20 text-sky-300 border-sky-500/40 hover:bg-sky-500/30'
                         }`}
+                        title={
+                          trip.status === 'underway'
+                            ? 'Voyage is underway. Click to mark as Completed.'
+                            : 'Voyage is completed. Click to mark as Underway.'
+                        }
                       >
                         {trip.status === 'underway' ? (
                           <>
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                            UNDERWAY
+                            <span>UNDERWAY</span>
                           </>
                         ) : (
                           <>
                             <CheckCircle2 className="w-3 h-3 text-sky-400" />
-                            COMPLETED
+                            <span>COMPLETED</span>
                           </>
                         )}
-                      </span>
+                      </button>
 
                       <span className="text-xs text-slate-400 flex items-center gap-1">
                         <Calendar className="w-3 h-3 text-slate-500" />

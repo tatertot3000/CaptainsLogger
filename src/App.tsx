@@ -498,12 +498,12 @@ export const App: React.FC = () => {
           />
         )}
 
-        {activeTab === 'sail' && (
+        <div className={activeTab === 'sail' ? '' : 'hidden'}>
           <SailLogView
             db={db}
             onUpdateDb={handleUpdateDb}
           />
-        )}
+        </div>
 
         {activeTab === 'fuel' && (
           <FuelLogView
