@@ -558,6 +558,27 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
     }
   }, [activeVesselFix, liveTrackPoints, anchorWatch]);
 
+  // Re-synchronize Leaflet container viewport and pan to active vessel upon unlocking phone
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const map = mapInstanceRef.current;
+        if (map) {
+          setTimeout(() => {
+            map.invalidateSize();
+            if (activeVesselFix) {
+              map.panTo([activeVesselFix.lat, activeVesselFix.lon], { animate: true });
+            }
+          }, 150);
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [activeVesselFix]);
+
   // Recenter map on active vessel GPS position
   const handleRecenterBoat = useCallback(() => {
     if (!mapInstanceRef.current || !activeVesselFix) return;

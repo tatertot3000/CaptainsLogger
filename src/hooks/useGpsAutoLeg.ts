@@ -329,6 +329,15 @@ export function useGpsAutoLeg(
         shouldRecordFix = true;
       } else {
         const isJitter = isGpsJitter(lastFix, latitude, longitude, accuracyMeters ?? undefined);
+        const profileCfg = getGpsProfileConfig(gpsProfileRef.current);
+        const movedMeters = haversineDistanceMeters(
+          lastFix.lat,
+          lastFix.lon,
+          latitude,
+          longitude
+        );
+        const timeSinceLastFixSec = (timestampMs - lastFix.timestamp) / 1000;
+
         if (!isJitter) {
           deltaNm = haversineDistanceNm(
             lastFix.lat,
@@ -336,20 +345,14 @@ export function useGpsAutoLeg(
             latitude,
             longitude
           );
+        }
 
-          const profileCfg = getGpsProfileConfig(gpsProfileRef.current);
-          const movedMeters = haversineDistanceMeters(
-            lastFix.lat,
-            lastFix.lon,
-            latitude,
-            longitude
-          );
-          const timeSinceLastFixSec = (timestampMs - lastFix.timestamp) / 1000;
-
-          // Record breadcrumb fix if boat moved beyond profile distance filter or interval elapsed
-          if (movedMeters >= profileCfg.distanceFilterMeters || timeSinceLastFixSec >= profileCfg.intervalSeconds) {
-            shouldRecordFix = true;
-          }
+        // Record breadcrumb fix if boat moved beyond profile distance filter or interval elapsed
+        if (
+          (!isJitter && movedMeters >= profileCfg.distanceFilterMeters) ||
+          timeSinceLastFixSec >= profileCfg.intervalSeconds
+        ) {
+          shouldRecordFix = true;
         }
       }
 
@@ -389,6 +392,32 @@ export function useGpsAutoLeg(
     },
     [persistActiveLeg]
   );
+
+  // Instantly poll a fresh satellite position upon phone unlock
+  useEffect(() => {
+    const handleScreenUnlock = () => {
+      if (document.visibilityState === 'visible' && activeLegRef.current && !activeLegRef.current.isPaused) {
+        Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 5000 })
+          .then((pos) => {
+            if (pos && pos.coords) {
+              processNewFix(
+                pos.coords.latitude,
+                pos.coords.longitude,
+                pos.coords.speed,
+                pos.coords.heading,
+                pos.coords.accuracy,
+                pos.timestamp || Date.now()
+              );
+            }
+          })
+          .catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', handleScreenUnlock);
+    return () => {
+      document.removeEventListener('visibilitychange', handleScreenUnlock);
+    };
+  }, [processNewFix]);
 
   // Start watching GPS position (with background foreground service on Android)
   const startWatchingPosition = useCallback(async () => {
