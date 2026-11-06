@@ -579,6 +579,30 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
     };
   }, [activeVesselFix]);
 
+  // Handle fullscreen resizing & Escape key listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    // Invalidate map size across render frames to ensure tiles fill full screen
+    const t1 = setTimeout(() => {
+      mapInstanceRef.current?.invalidateSize();
+    }, 100);
+    const t2 = setTimeout(() => {
+      mapInstanceRef.current?.invalidateSize();
+    }, 350);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [isFullscreen]);
+
   // Recenter map on active vessel GPS position
   const handleRecenterBoat = useCallback(() => {
     if (!mapInstanceRef.current || !activeVesselFix) return;
@@ -626,12 +650,12 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
 
   return (
     <div
-      className={`relative flex flex-col bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl ${
-        isModal
-          ? isFullscreen
-            ? 'fixed inset-0 z-50 rounded-none'
-            : 'w-full max-w-4xl max-h-[90vh] h-[650px]'
-          : className || 'w-full h-80'
+      className={`relative flex flex-col bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl transition-all ${
+        isFullscreen
+          ? 'fixed inset-0 z-[130] rounded-none w-screen h-screen'
+          : isModal
+            ? 'w-full max-w-4xl max-h-[90vh] h-[650px]'
+            : className || 'w-full h-80'
       }`}
     >
       {/* Top Header Bar */}
@@ -674,23 +698,33 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
             <span className="hidden sm:inline">Offline Charts</span>
           </button>
 
-          {isModal && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsFullscreen(!isFullscreen);
-                setTimeout(() => mapInstanceRef.current?.invalidateSize(), 200);
-              }}
-              className="p-1.5 text-slate-400 hover:text-slate-200 bg-slate-800/60 hover:bg-slate-800 rounded-lg transition cursor-pointer"
-              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Map'}
-            >
-              {isFullscreen ? (
-                <Minimize2 className="w-4 h-4" />
-              ) : (
-                <Maximize2 className="w-4 h-4" />
-              )}
-            </button>
-          )}
+          {/* Maximize / Fullscreen Map Button (Available in both live cockpit tracking and modals) */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsFullscreen(!isFullscreen);
+              setTimeout(() => mapInstanceRef.current?.invalidateSize(), 200);
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer shadow ${
+              isFullscreen
+                ? 'bg-sky-500 text-slate-950 hover:bg-sky-400 font-extrabold'
+                : 'text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60'
+            }`}
+            title={isFullscreen ? 'Exit Fullscreen (Esc)' : 'Maximize Fullscreen Chart'}
+            aria-label={isFullscreen ? 'Exit Fullscreen' : 'Maximize Fullscreen Chart'}
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span>Exit Fullscreen</span>
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Maximize</span>
+              </>
+            )}
+          </button>
 
           {onClose && (
             <button
@@ -799,14 +833,26 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
           <button
             type="button"
             onClick={handleRecenterBoat}
-            className="absolute bottom-3 left-3 z-[400] flex items-center gap-2 bg-slate-900/90 hover:bg-slate-800 backdrop-blur border border-sky-500/50 text-sky-200 text-xs px-3 py-1.5 rounded-xl shadow-lg transition cursor-pointer group text-left"
+            className="absolute bottom-3 left-3 z-[400] flex items-center gap-2.5 bg-slate-900/90 hover:bg-slate-800 backdrop-blur border border-sky-500/50 text-sky-200 text-xs px-3 py-1.5 rounded-xl shadow-xl transition cursor-pointer group text-left"
             title="Click to recenter map on vessel position"
           >
-            <Radio className="w-3.5 h-3.5 text-sky-400 animate-pulse group-hover:scale-110 transition" />
-            <span className="font-bold">Live GPS AutoLeg Tracking</span>
-            <span className="font-mono text-[11px] text-sky-300">
-              {activeVesselFix.speedKts?.toFixed(1) || '0.0'} kts
-            </span>
+            <Radio className="w-3.5 h-3.5 text-sky-400 animate-pulse group-hover:scale-110 transition shrink-0" />
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-white">Live Tracking</span>
+              <span className="font-mono text-emerald-400 font-extrabold">
+                {activeVesselFix.speedKts != null ? activeVesselFix.speedKts.toFixed(1) : '0.0'} kts
+              </span>
+              {activeVesselFix.headingDeg != null && (
+                <span className="font-mono text-sky-300">
+                  {Math.round(activeVesselFix.headingDeg)}°
+                </span>
+              )}
+              {totalStats.distanceNm > 0 && (
+                <span className="font-mono text-amber-300 hidden sm:inline">
+                  {totalStats.distanceNm} NM
+                </span>
+              )}
+            </div>
           </button>
         )}
       </div>
