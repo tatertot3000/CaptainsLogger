@@ -124,7 +124,7 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
 
       L.control
         .zoom({
-          position: 'bottomright',
+          position: 'topright',
         })
         .addTo(map);
 
@@ -652,30 +652,35 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
     <div
       className={`relative flex flex-col bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl transition-all ${
         isFullscreen
-          ? 'fixed inset-0 z-[130] rounded-none w-screen h-screen'
+          ? 'fixed inset-0 z-[130] rounded-none w-full h-[100dvh]'
           : isModal
             ? 'w-full max-w-4xl max-h-[90vh] h-[650px]'
             : className || 'w-full h-80'
       }`}
+      style={isFullscreen ? { height: '100dvh', width: '100vw' } : undefined}
     >
       {/* Top Header Bar */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-slate-900/90 backdrop-blur border-b border-slate-800 z-10">
+      <div
+        className={`flex items-center justify-between px-3 sm:px-4 py-2 sm:py-2.5 bg-slate-900/95 backdrop-blur border-b border-slate-800 z-10 ${
+          isFullscreen ? 'pt-[max(0.6rem,env(safe-area-inset-top))]' : ''
+        }`}
+      >
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-7 h-7 rounded-lg bg-sky-500/20 border border-sky-400/30 flex items-center justify-center shrink-0">
             <Compass className="w-4 h-4 text-sky-400" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-sm font-bold text-slate-100 truncate">
+            <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">
               {title || 'Passage Navigation Chart'}
             </h3>
             {subtitle && (
-              <p className="text-[11px] text-slate-400 truncate">{subtitle}</p>
+              <p className="text-[10px] sm:text-[11px] text-slate-400 truncate">{subtitle}</p>
             )}
           </div>
         </div>
 
         {/* Stats Pill & Controls */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {totalStats.distanceNm > 0 && (
             <div className="hidden sm:flex items-center gap-2 text-xs font-mono bg-slate-800/80 border border-slate-700/60 rounded-lg px-2.5 py-1 text-slate-300">
               <span>{totalStats.distanceNm} NM</span>
@@ -691,11 +696,11 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
           <button
             type="button"
             onClick={() => setShowOfflineModal(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-sky-300 bg-sky-950/70 hover:bg-sky-900 border border-sky-500/40 rounded-lg transition shadow cursor-pointer"
+            className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 text-xs font-bold text-sky-300 bg-sky-950/70 hover:bg-sky-900 border border-sky-500/40 rounded-lg transition shadow cursor-pointer shrink-0"
             title="Download offline chart pack for cruising with no cell service"
           >
             <DownloadCloud className="w-3.5 h-3.5 text-sky-400" />
-            <span className="hidden sm:inline">Offline Charts</span>
+            <span className="hidden md:inline">Offline Charts</span>
           </button>
 
           {/* Maximize / Fullscreen Map Button (Available in both live cockpit tracking and modals) */}
@@ -705,7 +710,7 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
               setIsFullscreen(!isFullscreen);
               setTimeout(() => mapInstanceRef.current?.invalidateSize(), 200);
             }}
-            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer shadow ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-lg transition cursor-pointer shadow shrink-0 ${
               isFullscreen
                 ? 'bg-sky-500 text-slate-950 hover:bg-sky-400 font-extrabold'
                 : 'text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60'
@@ -716,7 +721,7 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
             {isFullscreen ? (
               <>
                 <Minimize2 className="w-3.5 h-3.5" />
-                <span>Exit Fullscreen</span>
+                <span>Exit</span>
               </>
             ) : (
               <>
@@ -744,48 +749,50 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
         <div ref={mapContainerRef} className="w-full h-full z-0" />
 
         {/* Floating Layer Selector Bar */}
-        <div className="absolute top-3 left-3 z-[400] flex items-center gap-1 bg-slate-900/90 backdrop-blur border border-slate-700/70 rounded-xl p-1 shadow-lg text-[11px] font-semibold">
+        <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 z-[400] flex items-center gap-1 bg-slate-900/90 backdrop-blur border border-slate-700/70 rounded-xl p-1 shadow-lg text-[10.5px] sm:text-[11px] font-semibold max-w-[calc(100vw-5rem)] overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveLayer('osm')}
-            className={`px-2 py-1 rounded-lg transition ${
+            className={`px-2 py-0.5 sm:py-1 rounded-lg transition shrink-0 ${
               activeLayer === 'osm'
                 ? 'bg-sky-500 text-slate-950 font-bold shadow'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800'
             }`}
           >
-            Ocean Chart
+            <span className="hidden sm:inline">Ocean Chart</span>
+            <span className="sm:hidden inline">Ocean</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveLayer('satellite')}
-            className={`px-2 py-1 rounded-lg transition ${
+            className={`px-2 py-0.5 sm:py-1 rounded-lg transition shrink-0 ${
               activeLayer === 'satellite'
                 ? 'bg-sky-500 text-slate-950 font-bold shadow'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800'
             }`}
           >
-            Satellite
+            Sat
           </button>
           <button
             type="button"
             onClick={() => setActiveLayer('dark')}
-            className={`px-2 py-1 rounded-lg transition ${
+            className={`px-2 py-0.5 sm:py-1 rounded-lg transition shrink-0 ${
               activeLayer === 'dark'
                 ? 'bg-sky-500 text-slate-950 font-bold shadow'
                 : 'text-slate-300 hover:text-white hover:bg-slate-800'
             }`}
           >
-            Night Cockpit
+            <span className="hidden sm:inline">Night Cockpit</span>
+            <span className="sm:hidden inline">Night</span>
           </button>
 
-          <div className="w-[1px] h-4 bg-slate-700 mx-1" />
+          <div className="w-[1px] h-3.5 bg-slate-700 mx-0.5 shrink-0" />
 
           {/* OpenSeaMap Marine Seamarks Toggle */}
           <button
             type="button"
             onClick={() => setShowSeaMarks(!showSeaMarks)}
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg transition ${
+            className={`flex items-center gap-1 px-2 py-0.5 sm:py-1 rounded-lg transition shrink-0 ${
               showSeaMarks
                 ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-600/50'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
@@ -797,17 +804,23 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
             ) : (
               <EyeOff className="w-3.5 h-3.5" />
             )}
-            <span>Seamarks</span>
+            <span>Marks</span>
           </button>
         </div>
 
         {/* Floating Controls Bar (Bottom Right): Recenter Boat & Fit Route */}
-        <div className="absolute bottom-3 right-3 z-[400] flex items-center gap-2">
+        <div
+          className={`absolute z-[400] flex items-center gap-1.5 sm:gap-2 ${
+            isFullscreen
+              ? 'bottom-[max(0.75rem,env(safe-area-inset-bottom))] right-2.5 sm:right-3'
+              : 'bottom-3 right-3'
+          }`}
+        >
           {legs.length > 0 && (
             <button
               type="button"
               onClick={handleFitRoute}
-              className="flex items-center gap-1.5 bg-slate-900/90 hover:bg-slate-800 active:bg-slate-950 text-slate-200 hover:text-white text-xs font-semibold px-2.5 py-1.5 rounded-xl shadow-lg border border-slate-700/80 transition cursor-pointer backdrop-blur"
+              className="flex items-center gap-1.5 bg-slate-900/90 hover:bg-slate-800 active:bg-slate-950 text-slate-200 hover:text-white text-xs font-semibold px-2.5 py-1.5 rounded-xl shadow-lg border border-slate-700/80 transition cursor-pointer backdrop-blur shrink-0"
               title="Zoom out to fit entire voyage route"
             >
               <Compass className="w-3.5 h-3.5 text-slate-400" />
@@ -819,11 +832,12 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
             <button
               type="button"
               onClick={handleRecenterBoat}
-              className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white font-bold text-xs px-3 py-1.5 rounded-xl shadow-xl transition border border-sky-400/50 cursor-pointer backdrop-blur"
+              className="flex items-center gap-1.5 bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white font-bold text-xs px-2.5 sm:px-3 py-1.5 rounded-xl shadow-xl transition border border-sky-400/50 cursor-pointer backdrop-blur shrink-0"
               title="Recenter chart onto current vessel GPS position"
             >
               <Crosshair className="w-3.5 h-3.5 text-white" />
-              <span>Recenter Boat</span>
+              <span className="hidden sm:inline">Recenter Boat</span>
+              <span className="sm:hidden inline">Recenter</span>
             </button>
           )}
         </div>
@@ -833,22 +847,26 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
           <button
             type="button"
             onClick={handleRecenterBoat}
-            className="absolute bottom-3 left-3 z-[400] flex items-center gap-2.5 bg-slate-900/90 hover:bg-slate-800 backdrop-blur border border-sky-500/50 text-sky-200 text-xs px-3 py-1.5 rounded-xl shadow-xl transition cursor-pointer group text-left"
+            className={`absolute z-[400] flex items-center gap-2 bg-slate-900/90 hover:bg-slate-800 backdrop-blur border border-sky-500/50 text-sky-200 text-xs px-2.5 sm:px-3 py-1.5 rounded-xl shadow-xl transition cursor-pointer group text-left max-w-[calc(100vw-8.5rem)] ${
+              isFullscreen
+                ? 'bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-2.5 sm:left-3'
+                : 'bottom-3 left-3'
+            }`}
             title="Click to recenter map on vessel position"
           >
             <Radio className="w-3.5 h-3.5 text-sky-400 animate-pulse group-hover:scale-110 transition shrink-0" />
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-white">Live Tracking</span>
-              <span className="font-mono text-emerald-400 font-extrabold">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
+              <span className="font-bold text-white text-[11px] sm:text-xs">Live Tracking</span>
+              <span className="font-mono text-emerald-400 font-extrabold text-[11px] sm:text-xs">
                 {activeVesselFix.speedKts != null ? activeVesselFix.speedKts.toFixed(1) : '0.0'} kts
               </span>
               {activeVesselFix.headingDeg != null && (
-                <span className="font-mono text-sky-300">
+                <span className="font-mono text-sky-300 text-[11px] sm:text-xs">
                   {Math.round(activeVesselFix.headingDeg)}°
                 </span>
               )}
               {totalStats.distanceNm > 0 && (
-                <span className="font-mono text-amber-300 hidden sm:inline">
+                <span className="font-mono text-amber-300 text-[11px] sm:text-xs hidden xs:inline">
                   {totalStats.distanceNm} NM
                 </span>
               )}
@@ -857,42 +875,44 @@ export const LegTrackMap: React.FC<LegTrackMapProps> = ({
         )}
       </div>
 
-      {/* Bottom Route Legend Bar (if multiple legs or ports) */}
-      <div className="px-4 py-2 bg-slate-900/95 border-t border-slate-800/90 flex items-center justify-between gap-3 text-xs flex-wrap z-10">
-        <div className="flex items-center gap-3 overflow-x-auto py-0.5">
-          {legs.map((leg, i) => (
-            <div key={leg.id} className="flex items-center gap-1.5 shrink-0">
-              <span
-                className="w-3 h-3 rounded-full shrink-0"
-                style={{ backgroundColor: LEG_COLORS[i % LEG_COLORS.length] }}
-              />
-              <span className="text-slate-300 font-medium">
-                {leg.departurePort.split(',')[0]} → {leg.arrivalPort.split(',')[0]}
-              </span>
-              {leg.distanceNm ? (
-                <span className="text-slate-500 font-mono text-[11px]">
-                  ({leg.distanceNm} NM)
+      {/* Bottom Route Legend Bar (hidden in fullscreen mode to dedicate 100% of display to chart) */}
+      {!isFullscreen && (
+        <div className="px-4 py-2 bg-slate-900/95 border-t border-slate-800/90 flex items-center justify-between gap-3 text-xs flex-wrap z-10">
+          <div className="flex items-center gap-3 overflow-x-auto py-0.5">
+            {legs.map((leg, i) => (
+              <div key={leg.id} className="flex items-center gap-1.5 shrink-0">
+                <span
+                  className="w-3 h-3 rounded-full shrink-0"
+                  style={{ backgroundColor: LEG_COLORS[i % LEG_COLORS.length] }}
+                />
+                <span className="text-slate-300 font-medium">
+                  {leg.departurePort.split(',')[0]} → {leg.arrivalPort.split(',')[0]}
                 </span>
-              ) : null}
-            </div>
-          ))}
-        </div>
+                {leg.distanceNm ? (
+                  <span className="text-slate-500 font-mono text-[11px]">
+                    ({leg.distanceNm} NM)
+                  </span>
+                ) : null}
+              </div>
+            ))}
+          </div>
 
-        <div className="flex items-center gap-3 text-[11px] text-slate-400 shrink-0">
-          <div className="hidden sm:flex items-center gap-1 text-amber-400/80 text-[10.5px]">
-            <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
-            <span>Supplemental aid only • Not for primary navigation</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
-            <span>Departure</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
-            <span>Arrival</span>
+          <div className="flex items-center gap-3 text-[11px] text-slate-400 shrink-0">
+            <div className="hidden sm:flex items-center gap-1 text-amber-400/80 text-[10.5px]">
+              <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+              <span>Supplemental aid only • Not for primary navigation</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
+              <span>Departure</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
+              <span>Arrival</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Offline Chart Pack Manager Modal */}
       {showOfflineModal && (
