@@ -48,6 +48,7 @@ jobs:
           fi
           node .github/android/inject-manifest-permissions.js
           npx cap sync android
+          node .github/android/inject-manifest-permissions.js
           cat android/app/src/main/assets/capacitor.plugins.json
 
       - name: Configure Persistent Signing Key & Auto-Increment VersionCode

@@ -54,6 +54,8 @@ if (fs.existsSync(mainActivityPath)) {
 import android.content.Context;
 import android.os.Bundle;
 import android.os.PowerManager;
+import android.view.View;
+import android.webkit.WebView;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -78,10 +80,33 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public void onPause() {
+        super.onPause();
+        keepWebViewAwake();
+    }
+
+    @Override
+    public void onStop() {
+        super.onStop();
+        keepWebViewAwake();
+    }
+
+    @Override
     public void onResume() {
         super.onResume();
-        if (this.bridge != null && this.bridge.getWebView() != null) {
-            this.bridge.getWebView().resumeTimers();
+        keepWebViewAwake();
+    }
+
+    private void keepWebViewAwake() {
+        try {
+            if (this.bridge != null && this.bridge.getWebView() != null) {
+                WebView wv = this.bridge.getWebView();
+                wv.resumeTimers();
+                wv.dispatchWindowVisibilityChanged(View.VISIBLE);
+                wv.setVisibility(View.VISIBLE);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
@@ -182,6 +207,62 @@ if (fs.existsSync(bgServicePath)) {
     );
   }
 
+  // Ensure ALL batched locations from FusedLocationProvider are broadcast, not just the single last location
+  if (bgCode.includes('Location location = locationResult.getLastLocation();')) {
+    bgCode = bgCode.replace(
+      `Location location = locationResult.getLastLocation();
+                    Intent intent = new Intent(ACTION_BROADCAST);
+                    intent.putExtra("location", location);
+                    intent.putExtra("id", id);
+                    LocalBroadcastManager.getInstance(
+                            getApplicationContext()
+                    ).sendBroadcast(intent);`,
+      `if (locationResult == null) return;
+                    for (Location location : locationResult.getLocations()) {
+                        if (location == null) continue;
+                        Intent intent = new Intent(ACTION_BROADCAST);
+                        intent.putExtra("location", location);
+                        intent.putExtra("id", id);
+                        LocalBroadcastManager.getInstance(
+                                getApplicationContext()
+                        ).sendBroadcast(intent);
+                    }`
+    );
+  }
+
   fs.writeFileSync(bgServicePath, bgCode, 'utf8');
   console.log('Successfully patched BackgroundGeolocationService.java for Android 14+ location type and WakeLock');
+}
+
+// Patch BackgroundGeolocation.java for safe notification icon fallback and runtime permissions
+const bgPluginPath = path.resolve(
+  __dirname,
+  '../../node_modules/@capacitor-community/background-geolocation/android/src/main/java/com/equimaps/capacitor_background_geolocation/BackgroundGeolocation.java'
+);
+if (fs.existsSync(bgPluginPath)) {
+  let pluginCode = fs.readFileSync(bgPluginPath, 'utf8');
+
+  // Ensure safe icon fallback so adaptive XML icons do not crash Notification.Builder
+  if (!pluginCode.includes('android.R.drawable.ic_menu_mylocation')) {
+    pluginCode = pluginCode.replace(
+      'builder.setSmallIcon(\n                        getAppResourceIdentifier(parts[1], parts[0])\n                );',
+      `int resId = getAppResourceIdentifier(parts[1], parts[0]);
+                if (resId != 0) {
+                    builder.setSmallIcon(resId);
+                } else {
+                    builder.setSmallIcon(android.R.drawable.ic_menu_mylocation);
+                }`
+    );
+  }
+
+  // Ensure POST_NOTIFICATIONS and ACCESS_BACKGROUND_LOCATION are requested in the plugin permission alias
+  if (!pluginCode.includes('Manifest.permission.POST_NOTIFICATIONS')) {
+    pluginCode = pluginCode.replace(
+      'Manifest.permission.ACCESS_FINE_LOCATION',
+      'Manifest.permission.ACCESS_FINE_LOCATION,\n                                Manifest.permission.POST_NOTIFICATIONS,\n                                Manifest.permission.ACCESS_BACKGROUND_LOCATION'
+    );
+  }
+
+  fs.writeFileSync(bgPluginPath, pluginCode, 'utf8');
+  console.log('Successfully patched BackgroundGeolocation.java for notification icon resilience and permissions');
 }
