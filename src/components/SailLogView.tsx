@@ -417,6 +417,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [expandedLegIds, setExpandedLegIds] = useState<Record<string, boolean>>({});
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
+  const [markTripCompletedOnSave, setMarkTripCompletedOnSave] = useState(false);
 
   const toggleLegExpanded = (legId: string) => {
     setExpandedLegIds((prev) => ({
@@ -539,6 +540,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   const openCreateLegModal = (trip: SailTrip) => {
     setActiveTripForLeg(trip);
     setEditingLeg(null);
+    setMarkTripCompletedOnSave(false);
     const prevLeg = trip.legs && trip.legs.length > 0 ? trip.legs[trip.legs.length - 1] : null;
     const legNum = (trip.legs?.length || 0) + 1;
     setLegTitle(`Leg ${legNum}`);
@@ -588,6 +590,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   const openCreateLegModalWithGps = (trip: SailTrip, summary: CompletedLegSummary) => {
     setActiveTripForLeg(trip);
     setEditingLeg(null);
+    setMarkTripCompletedOnSave(false);
     const prevLeg = trip.legs && trip.legs.length > 0 ? trip.legs[trip.legs.length - 1] : null;
     const legNum = (trip.legs?.length || 0) + 1;
     setLegTitle(`Leg ${legNum}`);
@@ -671,6 +674,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   const openEditLegModal = (trip: SailTrip, leg: SailLeg) => {
     setActiveTripForLeg(trip);
     setEditingLeg(leg);
+    setMarkTripCompletedOnSave(false);
     setLegTitle(leg.title || `Leg ${leg.legNumber}`);
     setLegDeparturePort(leg.departurePort);
     setLegArrivalPort(leg.arrivalPort);
@@ -811,7 +815,14 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                 }
               : l
           );
-          return { ...t, legs: updatedLegs };
+          const finalStatus = markTripCompletedOnSave ? 'completed' : t.status;
+          const finalEndDate =
+            markTripCompletedOnSave && !t.endDate
+              ? legArrivalTime
+                ? legArrivalTime.slice(0, 10)
+                : new Date().toISOString().slice(0, 10)
+              : t.endDate;
+          return { ...t, status: finalStatus, endDate: finalEndDate, legs: updatedLegs };
         } else {
           const newLeg: SailLeg = {
             id: 'leg-' + Date.now(),
@@ -847,7 +858,14 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
             avgSpeedKts: legAvgSpeedKts,
             trackPoints: legTrackPoints,
           };
-          return { ...t, legs: [...currentLegs, newLeg] };
+          const finalStatus = markTripCompletedOnSave ? 'completed' : t.status;
+          const finalEndDate =
+            markTripCompletedOnSave && !t.endDate
+              ? legArrivalTime
+                ? legArrivalTime.slice(0, 10)
+                : new Date().toISOString().slice(0, 10)
+              : t.endDate;
+          return { ...t, status: finalStatus, endDate: finalEndDate, legs: [...currentLegs, newLeg] };
         }
       });
 
@@ -1567,7 +1585,13 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                       >
                         {trip.status === 'underway' ? (
                           <>
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full bg-emerald-400 ${
+                                activeLeg && activeLeg.tripId === trip.id && !activeLeg.isPaused
+                                  ? 'animate-pulse'
+                                  : ''
+                              }`}
+                            />
                             <span>UNDERWAY</span>
                           </>
                         ) : (
@@ -2199,7 +2223,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                       : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
                   <span>Underway (Active)</span>
                 </button>
                 <button
@@ -2974,6 +2998,26 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                   )}
                 </div>
               ) : null}
+              {/* Mark Entire Voyage as Completed Checkbox */}
+              {activeTripForLeg && activeTripForLeg.status === 'underway' && (
+                <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-200">
+                      Mark Entire Voyage as Completed
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      Check if you have arrived at your final destination and finished this voyage.
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    id="markTripCompletedOnSave"
+                    checked={markTripCompletedOnSave}
+                    onChange={(e) => setMarkTripCompletedOnSave(e.target.checked)}
+                    className="w-4 h-4 rounded text-sky-500 bg-slate-900 border-slate-700 cursor-pointer shrink-0"
+                  />
+                </div>
+              )}
             </div>
 
             </div>
