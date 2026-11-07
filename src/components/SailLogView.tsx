@@ -11,7 +11,6 @@ import {
   Gauge,
   CheckCircle2,
   Anchor,
-  User,
   Pencil,
   Trash2,
   X,
@@ -1589,13 +1588,6 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                         {trip.startDate}
                         {trip.endDate && trip.endDate !== trip.startDate && ` → ${trip.endDate}`}
                       </span>
-
-                      {trip.captain && (
-                        <span className="text-xs text-slate-400 flex items-center gap-1">
-                          <User className="w-3 h-3 text-slate-500" />
-                          {trip.captain}
-                        </span>
-                      )}
                     </div>
 
                     <div className="text-right text-xs shrink-0 ml-auto">
