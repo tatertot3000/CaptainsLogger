@@ -48,6 +48,7 @@ interface AnchorWatchModalProps {
   onUpdateRadius: (radiusMeters: number) => void;
   onSilenceAlarm: () => void;
   onResumeAlarm: () => void;
+  onRequestGps?: () => void;
 }
 
 const PRESET_RADII_FEET = [50, 75, 100, 125, 150, 200, 250, 300];
@@ -71,6 +72,7 @@ export const AnchorWatchModal: React.FC<AnchorWatchModalProps> = ({
   onUpdateRadius,
   onSilenceAlarm,
   onResumeAlarm,
+  onRequestGps,
 }) => {
   // Setup form state
   const [selectedRadiusFeet, setSelectedRadiusFeet] = useState<number>(() =>
@@ -492,12 +494,23 @@ export const AnchorWatchModal: React.FC<AnchorWatchModalProps> = ({
             {/* Drop Anchor Buttons */}
             <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
               <div className="text-[11px] text-slate-400 flex items-center gap-1.5 font-mono">
-                <MapPin className="w-3.5 h-3.5 text-teal-400 shrink-0" />
+                <MapPin className={`w-3.5 h-3.5 ${currentFix ? 'text-teal-400' : 'text-amber-400 animate-pulse'} shrink-0`} />
                 <span>
                   {currentFix
-                    ? toMarineCoordinates(currentFix.lat, currentFix.lon)
-                    : 'Acquiring GPS fix...'}
+                    ? `${toMarineCoordinates(currentFix.lat, currentFix.lon)}${
+                        currentFix.accuracyMeters ? ` (±${currentFix.accuracyMeters}m)` : ''
+                      }`
+                    : 'Acquiring satellite GPS fix...'}
                 </span>
+                {!currentFix && onRequestGps && (
+                  <button
+                    type="button"
+                    onClick={onRequestGps}
+                    className="ml-2 text-xs text-sky-400 hover:text-sky-300 underline font-sans cursor-pointer"
+                  >
+                    Retry GPS
+                  </button>
+                )}
               </div>
 
               <button
@@ -507,7 +520,7 @@ export const AnchorWatchModal: React.FC<AnchorWatchModalProps> = ({
                 className="flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-slate-950 font-extrabold text-xs px-5 py-2.5 rounded-xl transition shadow cursor-pointer"
               >
                 <Anchor className="w-4 h-4" />
-                <span>Drop Anchor &amp; Arm Alarm</span>
+                <span>{currentFix ? 'Drop Anchor & Arm Alarm' : 'Waiting for GPS...'}</span>
               </button>
             </div>
           </div>

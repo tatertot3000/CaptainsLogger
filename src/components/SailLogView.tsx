@@ -139,12 +139,20 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     resumeAlarm,
   } = useAnchorWatch(currentFix);
 
-  // Keep background GPS alive when Anchor Watch is armed even if passage is not underway
-  useEffect(() => {
-    setIsAnchorWatchActive(isAnchorArmed);
-  }, [isAnchorArmed, setIsAnchorWatchActive]);
-
   const [showAnchorModal, setShowAnchorModal] = useState(false);
+
+  // Keep background GPS alive when Anchor Watch is armed OR when Anchor Watch modal is open
+  useEffect(() => {
+    setIsAnchorWatchActive(isAnchorArmed || showAnchorModal);
+  }, [isAnchorArmed, showAnchorModal, setIsAnchorWatchActive]);
+
+  const openAnchorModal = useCallback(async () => {
+    if (Capacitor.isNativePlatform()) {
+      await requestGpsPermission();
+    }
+    setIsAnchorWatchActive(true);
+    setShowAnchorModal(true);
+  }, [requestGpsPermission, setIsAnchorWatchActive]);
 
   // GPS Leg coordinates and track points state for saving with legs
   const [legDepartureCoords, setLegDepartureCoords] = useState<{ lat: number; lon: number } | undefined>();
@@ -1071,7 +1079,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
           {/* Anchor Watch Button */}
           <button
             type="button"
-            onClick={() => setShowAnchorModal(true)}
+            onClick={openAnchorModal}
             className={`flex items-center gap-1.5 font-bold text-xs px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg transition shadow cursor-pointer shrink-0 border ${
               isAnchorBreached
                 ? 'bg-rose-500 text-white border-rose-400 animate-pulse'
@@ -1131,7 +1139,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
               ? 'bg-rose-950/90 border-2 border-rose-500 text-rose-100 animate-pulse'
               : 'bg-emerald-950/30 border-emerald-500/40 text-emerald-100 hover:bg-emerald-950/40'
           }`}
-          onClick={() => setShowAnchorModal(true)}
+          onClick={openAnchorModal}
         >
           <div className="flex items-center gap-2.5 min-w-0">
             <div
@@ -1186,7 +1194,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
             )}
             <button
               type="button"
-              onClick={() => setShowAnchorModal(true)}
+              onClick={openAnchorModal}
               className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 font-bold text-xs"
             >
               View Instrument
@@ -1235,7 +1243,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
 
               <button
                 type="button"
-                onClick={() => setShowAnchorModal(true)}
+                onClick={openAnchorModal}
                 className={`inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-semibold border px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full transition cursor-pointer shadow-sm ${
                   isAnchorArmed
                     ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/60'
@@ -1786,7 +1794,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                               </button>
                               <button
                                 type="button"
-                                onClick={() => setShowAnchorModal(true)}
+                                onClick={openAnchorModal}
                                 className={`flex items-center gap-1.5 text-[11px] font-bold rounded-lg px-2.5 py-1 transition cursor-pointer border ${
                                   isAnchorArmed
                                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
@@ -3140,6 +3148,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
         onUpdateRadius={updateSwingRadius}
         onSilenceAlarm={silenceAlarm}
         onResumeAlarm={resumeAlarm}
+        onRequestGps={openAnchorModal}
       />
 
       {/* GPS Navigational Safety Disclaimer Modal */}

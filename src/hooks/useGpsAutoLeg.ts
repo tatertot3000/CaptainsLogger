@@ -92,8 +92,17 @@ export function useGpsAutoLeg(
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isWakeLockActive, setIsWakeLockActive] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [isAnchorWatchActive, setIsAnchorWatchActive] = useState(false);
-  const isAnchorWatchActiveRef = useRef(false);
+  const [isAnchorWatchActive, setIsAnchorWatchActive] = useState(() => {
+    try {
+      const raw = localStorage.getItem('captains_logger_anchor_watch_v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return Boolean(parsed && parsed.isArmed);
+      }
+    } catch {}
+    return false;
+  });
+  const isAnchorWatchActiveRef = useRef(isAnchorWatchActive);
   isAnchorWatchActiveRef.current = isAnchorWatchActive;
 
   const backgroundWatcherIdRef = useRef<string | null>(null);
@@ -524,7 +533,7 @@ export function useGpsAutoLeg(
               ? 'Monitoring anchor swing radius & drag alarm...'
               : `Recording GPS track (${getGpsProfileConfig(gpsProfileRef.current).label})...`,
             requestPermissions: true,
-            stale: false,
+            stale: true,
             // Keep native displacement filter at 0 so Android emits updates continuously when slow/drifting/anchored
             distanceFilter: 0,
           },
@@ -555,6 +564,23 @@ export function useGpsAutoLeg(
         );
 
         backgroundWatcherIdRef.current = id;
+
+        // Poll an immediate location fix in parallel for instant satellite lock
+        Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 8000 })
+          .then((pos) => {
+            if (pos && pos.coords) {
+              processNewFix(
+                pos.coords.latitude,
+                pos.coords.longitude,
+                pos.coords.speed,
+                pos.coords.heading,
+                pos.coords.accuracy,
+                pos.timestamp || Date.now()
+              );
+            }
+          })
+          .catch((e) => console.debug('Native fast-poll non-fatal:', e));
+
         return;
       } catch (bgErr: any) {
         console.warn('BackgroundGeolocation.addWatcher failed, falling back to foreground Geolocation.watchPosition:', bgErr);
@@ -563,6 +589,22 @@ export function useGpsAutoLeg(
 
     // 3. Fallback to standard Geolocation.watchPosition (web browser / desktop)
     try {
+      // Immediately poll a fix for instant satellite lock
+      Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 8000 })
+        .then((pos) => {
+          if (pos && pos.coords) {
+            processNewFix(
+              pos.coords.latitude,
+              pos.coords.longitude,
+              pos.coords.speed,
+              pos.coords.heading,
+              pos.coords.accuracy,
+              pos.timestamp || Date.now()
+            );
+          }
+        })
+        .catch((e) => console.debug('Browser fast-poll non-fatal:', e));
+
       const id = await Geolocation.watchPosition(
         {
           enableHighAccuracy: true,
