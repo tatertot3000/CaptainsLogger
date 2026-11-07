@@ -31,6 +31,7 @@ import {
   Radio,
   Settings,
   Zap,
+  Filter,
 } from 'lucide-react';
 import {
   CaptainsDatabase,
@@ -1075,39 +1076,20 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
       {/* Action & Filter Bar */}
       <div className="bg-slate-900/90 border border-slate-800 p-2.5 sm:p-3 rounded-xl space-y-2.5 sm:space-y-3">
         <div className="flex items-center justify-between gap-2">
-          {/* Status filter buttons */}
-          <div className="flex bg-slate-950 p-0.5 sm:p-1 rounded-lg border border-slate-800 text-[11px] sm:text-xs font-semibold overflow-x-auto">
-            <button
-              onClick={() => setStatusFilter('all')}
-              className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md transition whitespace-nowrap ${
-                statusFilter === 'all'
-                  ? 'bg-sky-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
+          {/* Status filter pulldown */}
+          <div className="relative shrink-0">
+            <Filter className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as 'all' | 'underway' | 'completed')}
+              className="appearance-none bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-200 text-xs font-semibold rounded-lg pl-8 pr-7 py-2 cursor-pointer focus:outline-none focus:border-sky-500 shadow-sm transition"
+              aria-label="Filter passages by status"
             >
-              All
-            </button>
-            <button
-              onClick={() => setStatusFilter('underway')}
-              className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md transition flex items-center gap-1 sm:gap-1.5 whitespace-nowrap ${
-                statusFilter === 'underway'
-                  ? 'bg-emerald-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-              <span>Underway</span>
-            </button>
-            <button
-              onClick={() => setStatusFilter('completed')}
-              className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-md transition whitespace-nowrap ${
-                statusFilter === 'completed'
-                  ? 'bg-sky-600 text-white shadow'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <span>Completed</span>
-            </button>
+              <option value="all" className="bg-slate-900 text-slate-200">All</option>
+              <option value="underway" className="bg-slate-900 text-emerald-300">Underway</option>
+              <option value="completed" className="bg-slate-900 text-sky-300">Completed</option>
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
 
           {/* Anchor Watch Button */}
@@ -1616,54 +1598,54 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0 ml-auto">
-                      <div className="text-right text-xs">
-                        <div className="text-teal-400 font-mono font-bold flex items-center justify-end gap-1">
-                          <Navigation className="w-3.5 h-3.5" />
-                          <span>{Number(tripNm.toFixed(2))} NM</span>
-                        </div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          {legCount} {legCount === 1 ? 'leg' : 'legs'}
-                        </div>
+                    <div className="text-right text-xs shrink-0 ml-auto">
+                      <div className="text-teal-400 font-mono font-bold flex items-center justify-end gap-1">
+                        <Navigation className="w-3.5 h-3.5" />
+                        <span>{Number(tripNm.toFixed(2))} NM</span>
                       </div>
-
-                      {/* Trip actions */}
-                      <div className="flex items-center gap-1 pl-1 border-l border-slate-800">
-                        <button
-                          type="button"
-                          onClick={() => openEditTripModal(trip)}
-                          className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition"
-                          title="Edit voyage details"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteTrip(trip.id)}
-                          className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition"
-                          title="Delete voyage"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <div className="text-[11px] text-slate-400 mt-0.5">
+                        {legCount} {legCount === 1 ? 'leg' : 'legs'}
                       </div>
                     </div>
                   </div>
 
-                  {/* Row 2: Dedicated Full-Width Voyage Title */}
-                  <button
-                    type="button"
-                    onClick={() => toggleTripExpanded(trip.id)}
-                    className="min-w-0 text-left w-full group cursor-pointer block pt-0.5"
-                  >
-                    <h3 className="text-base font-bold text-slate-100 group-hover:text-sky-300 transition flex items-start gap-1.5 w-full">
-                      {isExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-sky-400 shrink-0 mt-1" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0 mt-1" />
-                      )}
-                      <span className="w-full break-words">{trip.title}</span>
-                    </h3>
-                  </button>
+                  {/* Row 2: Voyage Title Aligned with Edit & Delete Actions */}
+                  <div className="flex items-center justify-between gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => toggleTripExpanded(trip.id)}
+                      className="min-w-0 text-left flex-1 group cursor-pointer"
+                    >
+                      <h3 className="text-base font-bold text-slate-100 group-hover:text-sky-300 transition flex items-center gap-1.5">
+                        {isExpanded ? (
+                          <ChevronDown className="w-4 h-4 text-sky-400 shrink-0" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-sky-400 shrink-0" />
+                        )}
+                        <span className="break-words">{trip.title}</span>
+                      </h3>
+                    </button>
+
+                    {/* Trip actions aligned with Title */}
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openEditTripModal(trip)}
+                        className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition"
+                        title="Edit voyage details"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTrip(trip.id)}
+                        className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-950/30 rounded-lg transition"
+                        title="Delete voyage"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {trip.tripNotes && (
