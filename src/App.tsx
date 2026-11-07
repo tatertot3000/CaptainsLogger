@@ -595,7 +595,7 @@ export const App: React.FC = () => {
             }`}
           >
             <Package className="w-5 h-5" />
-            <span>Parts & Buy</span>
+            <span>Parts Locker</span>
             {lowSparesCount > 0 && (
               <span className="absolute top-1.5 right-4 w-2 h-2 rounded-full bg-rose-500" />
             )}
