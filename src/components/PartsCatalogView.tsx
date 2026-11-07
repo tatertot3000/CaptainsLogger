@@ -972,7 +972,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
             }`}
           >
             <Package className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Spares & Fluids ({filteredParts.length})</span>
+            <span className="truncate">Spares & Fluids</span>
           </button>
           <button
             type="button"
@@ -984,7 +984,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
             }`}
           >
             <BookOpen className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Manuals & PDFs ({filteredManuals.length})</span>
+            <span className="truncate">Manuals</span>
           </button>
         </div>
 

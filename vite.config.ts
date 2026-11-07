@@ -2,9 +2,37 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { localDiskDbPlugin } from './vite-disk-plugin';
+// @ts-ignore
+import { execSync } from 'child_process';
+
+declare const process: any;
+
+const getAppVersion = (): string => {
+  if (process.env.VITE_APP_VERSION) {
+    const v = process.env.VITE_APP_VERSION.trim();
+    return v.startsWith('v') ? v : `v${v}`;
+  }
+  if (process.env.GITHUB_RUN_NUMBER) {
+    return `v1.0.${process.env.GITHUB_RUN_NUMBER}`;
+  }
+  try {
+    const gitCount = execSync('git rev-list --count HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim();
+    if (gitCount) {
+      return `v1.0.${gitCount}`;
+    }
+  } catch {}
+  return 'v1.0.0';
+};
+
+const appVersion = getAppVersion();
 
 export default defineConfig({
   base: './',
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
+  },
   plugins: [
     react(),
     localDiskDbPlugin(),

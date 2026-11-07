@@ -1590,7 +1590,7 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
             Captain's Logger
           </span>
           <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-800 text-sky-300 border border-slate-700">
-            v1.0
+            {import.meta.env.VITE_APP_VERSION || 'v1.0'}
           </span>
         </div>
         <p className="text-xs text-slate-300 font-medium">
