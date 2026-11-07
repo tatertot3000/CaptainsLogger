@@ -160,12 +160,12 @@ export function isGpsJitter(
   nextLon: number,
   accuracyMeters?: number
 ): boolean {
-  // If GPS accuracy radius is exceptionally poor (> 45 meters), treat as jitter
-  if (accuracyMeters && accuracyMeters > 45) {
+  const distMeters = haversineDistanceMeters(prevFix.lat, prevFix.lon, nextLat, nextLon);
+
+  // If GPS accuracy radius is exceptionally poor (> 70 meters), only treat as jitter if stationary/drift
+  if (accuracyMeters && accuracyMeters > 70 && distMeters < 30) {
     return true;
   }
-
-  const distMeters = haversineDistanceMeters(prevFix.lat, prevFix.lon, nextLat, nextLon);
 
   // Tiny position shift (< 6 meters) while stationary/drifting
   if (distMeters < 6 && (prevFix.speedKts == null || prevFix.speedKts < 0.4)) {

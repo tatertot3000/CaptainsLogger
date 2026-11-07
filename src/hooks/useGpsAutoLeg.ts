@@ -15,7 +15,7 @@ const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('Backg
 
 const STORAGE_KEY = 'captains_logger_active_autoleg_v1';
 const GPS_PROFILE_STORAGE_KEY = 'captains_logger_gps_profile_v1';
-const MAX_BREADCRUMB_POINTS = 500;
+const MAX_BREADCRUMB_POINTS = 2000;
 
 export type GpsTrackingStatus =
   | 'idle'
@@ -100,7 +100,28 @@ export function useGpsAutoLeg(
   const foregroundWatchIdRef = useRef<string | number | null>(null);
   const wakeLockRef = useRef<any>(null);
   const activeLegRef = useRef<ActiveAutoLeg | null>(activeLeg);
-  activeLegRef.current = activeLeg;
+  const lastTrackedPosRef = useRef<{ lat: number; lon: number } | null>(
+    activeLeg && activeLeg.fixes.length > 0
+      ? {
+          lat: activeLeg.fixes[activeLeg.fixes.length - 1].lat,
+          lon: activeLeg.fixes[activeLeg.fixes.length - 1].lon,
+        }
+      : null
+  );
+
+  // Synchronize activeLegRef when activeLeg changes from initial load or external reset
+  useEffect(() => {
+    if (activeLeg) {
+      if (!activeLegRef.current || activeLegRef.current.startTime !== activeLeg.startTime) {
+        activeLegRef.current = activeLeg;
+      } else if (activeLeg.fixes.length >= activeLegRef.current.fixes.length) {
+        activeLegRef.current = activeLeg;
+      }
+    } else {
+      activeLegRef.current = null;
+      lastTrackedPosRef.current = null;
+    }
+  }, [activeLeg]);
 
   // Persist active leg to localStorage
   const persistActiveLeg = useCallback((leg: ActiveAutoLeg | null) => {
@@ -321,14 +342,51 @@ export function useGpsAutoLeg(
           ? currentLeg.fixes[currentLeg.fixes.length - 1]
           : null;
 
-      let deltaNm = 0;
-      let shouldRecordFix = false;
+      // Drop duplicate or stale out-of-order fixes
+      if (lastFix) {
+        if (timestampMs < lastFix.timestamp) {
+          return;
+        }
+        if (
+          lastFix.lat === latitude &&
+          lastFix.lon === longitude &&
+          (timestampMs === lastFix.timestamp || timestampMs - lastFix.timestamp < 1000)
+        ) {
+          return;
+        }
+      }
 
+      // Check stationary jitter against last fix
+      const isJitter = lastFix
+        ? isGpsJitter(lastFix, latitude, longitude, accuracyMeters ?? undefined)
+        : false;
+
+      // Track incremental distance from previous position without compounding
+      let deltaNm = 0;
+      if (!isJitter) {
+        if (lastTrackedPosRef.current) {
+          deltaNm = haversineDistanceNm(
+            lastTrackedPosRef.current.lat,
+            lastTrackedPosRef.current.lon,
+            latitude,
+            longitude
+          );
+        } else if (lastFix) {
+          deltaNm = haversineDistanceNm(
+            lastFix.lat,
+            lastFix.lon,
+            latitude,
+            longitude
+          );
+        }
+        lastTrackedPosRef.current = { lat: latitude, lon: longitude };
+      }
+
+      // Record breadcrumb fix if boat moved beyond profile distance filter or interval elapsed
+      let shouldRecordFix = false;
       if (!lastFix) {
-        // First fix of the leg
         shouldRecordFix = true;
       } else {
-        const isJitter = isGpsJitter(lastFix, latitude, longitude, accuracyMeters ?? undefined);
         const profileCfg = getGpsProfileConfig(gpsProfileRef.current);
         const movedMeters = haversineDistanceMeters(
           lastFix.lat,
@@ -338,16 +396,6 @@ export function useGpsAutoLeg(
         );
         const timeSinceLastFixSec = (timestampMs - lastFix.timestamp) / 1000;
 
-        if (!isJitter) {
-          deltaNm = haversineDistanceNm(
-            lastFix.lat,
-            lastFix.lon,
-            latitude,
-            longitude
-          );
-        }
-
-        // Record breadcrumb fix if boat moved beyond profile distance filter or interval elapsed
         if (
           (!isJitter && movedMeters >= profileCfg.distanceFilterMeters) ||
           timeSinceLastFixSec >= profileCfg.intervalSeconds
@@ -387,16 +435,27 @@ export function useGpsAutoLeg(
         fixes: nextFixes,
       };
 
+      // Keep activeLegRef updated synchronously so consecutive background fixes
+      // never read stale state and overwrite previous points
+      activeLegRef.current = updatedLeg;
       setActiveLeg(updatedLeg);
       persistActiveLeg(updatedLeg);
     },
     [persistActiveLeg]
   );
 
-  // Instantly poll a fresh satellite position upon phone unlock
+  // Instantly poll a fresh satellite position upon phone unlock if not recently updated
   useEffect(() => {
     const handleScreenUnlock = () => {
       if (document.visibilityState === 'visible' && activeLegRef.current && !activeLegRef.current.isPaused) {
+        const lastFix =
+          activeLegRef.current.fixes.length > 0
+            ? activeLegRef.current.fixes[activeLegRef.current.fixes.length - 1]
+            : null;
+        // If background service already delivered a fresh fix within the last 6s, avoid redundant poll
+        if (lastFix && Date.now() - lastFix.timestamp < 6000) {
+          return;
+        }
         Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 5000 })
           .then((pos) => {
             if (pos && pos.coords) {
@@ -610,6 +669,8 @@ export function useGpsAutoLeg(
         maxSpeedKts: currentFix?.speedKts || 0,
       };
 
+      activeLegRef.current = initialLeg;
+      lastTrackedPosRef.current = currentFix ? { lat: currentFix.lat, lon: currentFix.lon } : null;
       setActiveLeg(initialLeg);
       setTrackingStatus('tracking');
       setErrorMessage(null);
@@ -629,6 +690,8 @@ export function useGpsAutoLeg(
       pausedAt: nowIso,
     };
 
+    activeLegRef.current = pausedLeg;
+    lastTrackedPosRef.current = null;
     setActiveLeg(pausedLeg);
     setTrackingStatus('paused');
     persistActiveLeg(pausedLeg);
@@ -651,6 +714,8 @@ export function useGpsAutoLeg(
       totalPausedMs: (current.totalPausedMs || 0) + Math.max(0, addPauseMs),
     };
 
+    activeLegRef.current = resumedLeg;
+    lastTrackedPosRef.current = null;
     setActiveLeg(resumedLeg);
     setTrackingStatus('tracking');
     persistActiveLeg(resumedLeg);
@@ -663,6 +728,8 @@ export function useGpsAutoLeg(
     if (!current) return null;
 
     stopWatchingPosition();
+    activeLegRef.current = null;
+    lastTrackedPosRef.current = null;
 
     const arrivalIso = new Date().toISOString();
     const startMs = new Date(current.startTime).getTime();
@@ -700,6 +767,8 @@ export function useGpsAutoLeg(
   // User Action: Cancel / Discard AutoLeg
   const cancelAutoLeg = useCallback(() => {
     stopWatchingPosition();
+    activeLegRef.current = null;
+    lastTrackedPosRef.current = null;
     setActiveLeg(null);
     setTrackingStatus('idle');
     setErrorMessage(null);
