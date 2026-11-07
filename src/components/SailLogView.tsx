@@ -30,7 +30,6 @@ import {
   Radio,
   Settings,
   Zap,
-  Filter,
 } from 'lucide-react';
 import {
   CaptainsDatabase,
@@ -73,7 +72,6 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   onUpdateDb,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'underway' | 'completed'>('all');
 
   // Voyage (Trip) Modal State
   const [showTripModal, setShowTripModal] = useState(false);
@@ -982,12 +980,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   // Filtered trips
   const filteredTrips = useMemo(() => {
     return trips.filter((trip) => {
-      // 1. Status filter
-      if (statusFilter !== 'all' && trip.status !== statusFilter) {
-        return false;
-      }
-
-      // 2. Search query filter (matches trip title, captain, notes, ports, or crew)
+      // Search query filter (matches trip title, captain, notes, ports, or crew)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesTitle = trip.title.toLowerCase().includes(q);
@@ -1019,7 +1012,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
       if (dateDiff !== 0) return dateDiff;
       return b.id.localeCompare(a.id);
     });
-  }, [trips, statusFilter, searchQuery]);
+  }, [trips, searchQuery]);
 
   return (
     <div className="space-y-4 pb-20">
@@ -1075,22 +1068,6 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
       {/* Action & Filter Bar */}
       <div className="bg-slate-900/90 border border-slate-800 p-2.5 sm:p-3 rounded-xl space-y-2.5 sm:space-y-3">
         <div className="flex items-center justify-between gap-2">
-          {/* Status filter pulldown */}
-          <div className="relative shrink-0">
-            <Filter className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as 'all' | 'underway' | 'completed')}
-              className="appearance-none bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-200 text-xs font-semibold rounded-lg pl-8 pr-7 py-2 cursor-pointer focus:outline-none focus:border-sky-500 shadow-sm transition"
-              aria-label="Filter passages by status"
-            >
-              <option value="all" className="bg-slate-900 text-slate-200">All</option>
-              <option value="underway" className="bg-slate-900 text-emerald-300">Underway</option>
-              <option value="completed" className="bg-slate-900 text-sky-300">Completed</option>
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-          </div>
-
           {/* Anchor Watch Button */}
           <button
             type="button"
