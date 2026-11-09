@@ -49,6 +49,7 @@ import {
   compressImageFile,
   deductFromPartInventory,
   evaluateSchedule,
+  EvaluatedSchedule,
   ScheduleStatus,
 } from '../utils/vendors';
 import { IS_DEMO_MODE } from '../utils/demoMode';
@@ -395,7 +396,25 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
         .sort((a, b) => {
           const rank = { overdue: 0, 'due-soon': 1, good: 2, 'as-needed': 3 };
           if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
-          return b.progressPercent - a.progressPercent;
+
+          // Order from soonest to latest
+          const getMetric = (item: EvaluatedSchedule): number => {
+            if (item.status === 'as-needed') return Infinity;
+            let d = item.daysRemaining;
+            if (d === undefined && item.schedule.intervalDays && item.schedule.intervalDays > 0) d = 0;
+            let h = item.hoursRemaining !== undefined ? item.hoursRemaining * 3.5 : undefined;
+            if (h === undefined && item.schedule.intervalHours && item.schedule.intervalHours > 0) h = 0;
+            if (d !== undefined && h !== undefined) return Math.min(d, h);
+            if (d !== undefined) return d;
+            if (h !== undefined) return h;
+            return Infinity;
+          };
+
+          const metricA = getMetric(a);
+          const metricB = getMetric(b);
+          if (metricA !== metricB) return metricA - metricB;
+
+          return a.schedule.title.localeCompare(b.schedule.title);
         }),
     [db.schedules, db.vessel.currentEngineHours]
   );
@@ -531,6 +550,12 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
         }
       }
       return true;
+    }).sort((a, b) => {
+      const dateDiff = (b.date || '').localeCompare(a.date || '');
+      if (dateDiff !== 0) return dateDiff;
+      const hoursDiff = (b.engineHours ?? 0) - (a.engineHours ?? 0);
+      if (hoursDiff !== 0) return hoursDiff;
+      return b.id.localeCompare(a.id);
     });
   }, [db.serviceLogs, historySelectedSystems, selectedLogStatuses, systemTabs, historySearchQuery]);
 

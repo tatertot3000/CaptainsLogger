@@ -201,8 +201,13 @@ export function calculateFuelStats(
   fuelLogs: FuelLogEntry[],
   vessel: VesselProfile
 ): FuelSummaryStats {
-  // Sort ascending by engine hours for delta calculation
-  const sortedAsc = [...fuelLogs].sort((a, b) => a.engineHours - b.engineHours);
+  // Sort chronologically ascending (date then engine hours) for delta calculation
+  const sortedAsc = [...fuelLogs].sort((a, b) => {
+    const dateDiff = (a.date || '').localeCompare(b.date || '');
+    if (dateDiff !== 0) return dateDiff;
+    if (a.engineHours !== b.engineHours) return a.engineHours - b.engineHours;
+    return a.id.localeCompare(b.id);
+  });
 
   const logsWithStatsAsc: FuelLogWithStats[] = [];
   const validGphs: number[] = [];

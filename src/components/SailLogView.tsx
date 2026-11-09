@@ -1855,13 +1855,16 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                       <div className="space-y-2">
                         {[...(trip.legs || [])]
                           .sort((a, b) => {
+                            if ((a.legNumber || 0) !== (b.legNumber || 0)) {
+                              return (a.legNumber || 0) - (b.legNumber || 0);
+                            }
                             const timeA = a.departureTime || '';
                             const timeB = b.departureTime || '';
                             if (timeA && timeB) {
-                              const diff = timeB.localeCompare(timeA);
+                              const diff = timeA.localeCompare(timeB);
                               if (diff !== 0) return diff;
                             }
-                            return (b.legNumber || 0) - (a.legNumber || 0);
+                            return a.id.localeCompare(b.id);
                           })
                           .map((leg) => {
                           const isLegExpanded = !!expandedLegIds[leg.id];

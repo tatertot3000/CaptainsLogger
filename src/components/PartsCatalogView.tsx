@@ -785,7 +785,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
       (part.dosageHint && part.dosageHint.toLowerCase().includes(q)) ||
       part.crossRefNumbers.some((cr) => cr.toLowerCase().includes(q))
     );
-  });
+  }).sort((a, b) => a.name.localeCompare(b.name));
 
   const lowStockCount = db.parts.filter(
     (p) => p.trackQuantity !== false && p.quantityOnBoard <= p.minQuantity
@@ -810,7 +810,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
       (manual.pageHints && manual.pageHints.toLowerCase().includes(q)) ||
       (manual.notes && manual.notes.toLowerCase().includes(q))
     );
-  });
+  }).sort((a, b) => a.title.localeCompare(b.title));
 
   // Track total parts and consumables purchase costs across on-board inventory
   const inventoryCosts = useMemo(() => {
