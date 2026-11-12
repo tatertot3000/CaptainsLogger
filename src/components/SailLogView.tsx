@@ -263,7 +263,11 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
     setTripTitle('');
     setTripStartDate(new Date().toISOString().slice(0, 10));
     setTripEndDate('');
-    setTripCaptain(db.vessel?.name ? `Capt. ${db.vessel.name.split(' ')[0]}` : '');
+    setTripCaptain(
+      db.vessel?.name && db.vessel.name !== 'Enter Name'
+        ? `Capt. ${db.vessel.name.split(' ')[0]}`
+        : ''
+    );
     setTripStatusVal('underway');
     setTripNotesVal('');
     setTripPhotos([]);

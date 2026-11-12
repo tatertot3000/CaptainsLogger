@@ -32,6 +32,7 @@ import {
   generateFuelCsv,
   generatePartsCatalogCsv,
   generateServiceHistoryCsv,
+  getInitialEmptyDatabase,
   getInitialSampleDatabase,
 } from '../db/storage';
 import {
@@ -106,6 +107,17 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
   useEffect(() => {
     setVesselInsignia(db.vessel.insignia || 'compass');
   }, [db.vessel.insignia]);
+
+  useEffect(() => {
+    setName(db.vessel.name);
+    setBoatMakeModel(db.vessel.boatMakeModel);
+    setYear(String(db.vessel.year));
+    setEngineMakeModel(db.vessel.engineMakeModel);
+    setEngineSerial(db.vessel.engineSerial);
+    setFuelType(db.vessel.fuelType || 'diesel');
+    setFuelCapacity(String(db.vessel.fuelCapacityGallons));
+    setDefaultGph(String(db.vessel.defaultBurnRateGph));
+  }, [db.vessel]);
 
   const handleSelectInsignia = (insigniaId: string) => {
     setVesselInsignia(insigniaId);
@@ -1561,7 +1573,26 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
           </div>
         </div>
 
-        <div className="pt-2 border-t border-slate-800 flex justify-end">
+        <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-end gap-4">
+          {!IS_DEMO_MODE && (
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    'Clear all logs, schedules, parts, and reset vessel profile to empty?'
+                  )
+                ) {
+                  onUpdateDb(() => getInitialEmptyDatabase());
+                  showToast('Logbook cleared to empty defaults.');
+                }
+              }}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-rose-400 transition"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Clear All Entries (Empty Logbook)
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -1574,10 +1605,10 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
                 showToast('Sample sailboat data restored.');
               }
             }}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-rose-400 transition"
+            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-amber-400 transition"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            Reset to Sample Sailboat Data
+            {IS_DEMO_MODE ? 'Reset to Sample Sailboat Data' : 'Load Sample Sailboat Data'}
           </button>
         </div>
       </div>

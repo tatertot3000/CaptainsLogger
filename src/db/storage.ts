@@ -188,7 +188,46 @@ export function isInitialSampleDatabase(db: CaptainsDatabase): boolean {
   ) {
     return true;
   }
+  if (
+    db.vessel?.name === 'Enter Name' &&
+    (db.parts?.length ?? 0) === 0 &&
+    (db.schedules?.length ?? 0) === 0 &&
+    (db.serviceLogs?.length ?? 0) === 0 &&
+    (db.fuelLogs?.length ?? 0) === 0 &&
+    (db.sailTrips?.length ?? 0) === 0
+  ) {
+    return true;
+  }
   return false;
+}
+
+export function getInitialEmptyDatabase(): CaptainsDatabase {
+  const today = new Date().toISOString().slice(0, 10);
+  return {
+    version: 5,
+    exportedAt: SAMPLE_DB_EPOCH,
+    vessel: {
+      name: 'Enter Name',
+      boatMakeModel: '',
+      year: new Date().getFullYear(),
+      engineMakeModel: '',
+      engineSerial: '',
+      currentEngineHours: 0,
+      fuelCapacityGallons: 0,
+      defaultBurnRateGph: 0.5,
+      fuelType: 'diesel',
+      insignia: 'compass',
+      lastUpdated: today,
+    },
+    parts: [],
+    schedules: [],
+    serviceLogs: [],
+    fuelLogs: [],
+    engineHoursLogs: [],
+    sailTrips: [],
+    manuals: [],
+    customCategories: [],
+  };
 }
 
 export function getInitialSampleDatabase(): CaptainsDatabase {
@@ -917,10 +956,10 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
   const getSampleDb = () => (sampleDbCache ??= getInitialSampleDatabase());
   let sailTrips = [...(db.sailTrips || [])];
 
-  if (sailTrips.length === 0) {
+  if (IS_DEMO_MODE && sailTrips.length === 0) {
     sailTrips = getSampleDb().sailTrips || [];
     changed = true;
-  } else {
+  } else if (sailTrips.length > 0) {
     // Enrich sample legs with GPS coordinates if missing
     sailTrips = sailTrips.map((trip) => {
       if (trip.id === 'trip-sample-1') {
@@ -975,7 +1014,11 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
     }
   }
 
-  const manuals = Array.isArray(db.manuals) ? db.manuals : DEFAULT_SAMPLE_MANUALS;
+  const manuals = Array.isArray(db.manuals)
+    ? db.manuals
+    : IS_DEMO_MODE
+      ? DEFAULT_SAMPLE_MANUALS
+      : [];
   if (!db.manuals) {
     changed = true;
   }
@@ -1045,6 +1088,12 @@ export function loadDatabase(): CaptainsDatabase {
     if (raw) {
       const parsed = JSON.parse(raw) as CaptainsDatabase;
       if (parsed && parsed.vessel && Array.isArray(parsed.schedules)) {
+        // If an earlier version seeded an unedited sample DB in nominal mode, initialize a clean empty logbook
+        if (parsed.exportedAt === SAMPLE_DB_EPOCH && parsed.vessel?.name === 'S/V Windward Spirit') {
+          const emptyDb = getInitialEmptyDatabase();
+          saveDatabase(emptyDb, true);
+          return emptyDb;
+        }
         const upgraded = upgradeDatabaseSchema(parsed);
         if (upgraded !== parsed) {
           saveDatabase(upgraded, true);
@@ -1055,9 +1104,9 @@ export function loadDatabase(): CaptainsDatabase {
   } catch (err) {
     console.error('Failed to read local database:', err);
   }
-  const sample = getInitialSampleDatabase();
-  saveDatabase(sample, true);
-  return sample;
+  const initialDb = getInitialEmptyDatabase();
+  saveDatabase(initialDb, true);
+  return initialDb;
 }
 
 export function saveDatabase(db: CaptainsDatabase, preserveTimestamp = false): void {

@@ -259,7 +259,10 @@ export async function pullFromSupabaseCloud(
       payload: CaptainsDatabase;
     }>;
 
-    if (rows && rows.length > 0 && rows[0].payload?.vessel?.name !== 'S/V Windward Spirit') {
+    const isRealBoatName = (name?: string) =>
+      Boolean(name && name !== 'S/V Windward Spirit' && name !== 'Enter Name');
+
+    if (rows && rows.length > 0 && isRealBoatName(rows[0].payload?.vessel?.name)) {
       return { ok: true, data: rows[0].payload, discoveredBoatId: rows[0].boat_id };
     }
 
@@ -284,7 +287,7 @@ export async function pullFromSupabaseCloud(
       }>;
       if (allRows && allRows.length > 0) {
         const realBoatRow =
-          allRows.find((r) => r.payload?.vessel?.name && r.payload.vessel.name !== 'S/V Windward Spirit') ||
+          allRows.find((r) => isRealBoatName(r.payload?.vessel?.name)) ||
           allRows[0];
         return {
           ok: true,

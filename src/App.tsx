@@ -324,10 +324,17 @@ export const App: React.FC = () => {
               <h1 className="text-xs sm:text-sm font-extrabold text-white tracking-tight truncate leading-tight">
                 {db.vessel.name}
               </h1>
-              <p className="text-[10px] sm:text-[11px] text-slate-400 truncate leading-tight">
-                <span>{db.vessel.boatMakeModel}</span>
-                <span className="hidden sm:inline"> • {db.vessel.engineMakeModel}</span>
-              </p>
+              {(db.vessel.boatMakeModel || db.vessel.engineMakeModel) && (
+                <p className="text-[10px] sm:text-[11px] text-slate-400 truncate leading-tight">
+                  {db.vessel.boatMakeModel && <span>{db.vessel.boatMakeModel}</span>}
+                  {db.vessel.engineMakeModel && (
+                    <span className="hidden sm:inline">
+                      {db.vessel.boatMakeModel ? ' • ' : ''}
+                      {db.vessel.engineMakeModel}
+                    </span>
+                  )}
+                </p>
+              )}
             </div>
           </div>
 
