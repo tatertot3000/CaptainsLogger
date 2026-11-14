@@ -138,6 +138,15 @@ export interface VesselManual {
 
 export type ServiceLogStatus = 'completed' | 'deferred' | 'cancelled';
 
+export interface ServiceInvoiceDocument {
+  id: string;
+  fileName: string;
+  fileSizeBytes?: number;
+  addedAt: string; // YYYY-MM-DD
+  notes?: string;
+  dataUrl?: string; // Optional embedded data URL for portable export/sync
+}
+
 export interface ServiceLogEntry {
   id: string;
   scheduleId?: string;
@@ -150,6 +159,7 @@ export interface ServiceLogEntry {
   notes: string;
   status?: ServiceLogStatus; // Defaults to 'completed'
   photos?: MaintenancePhoto[];
+  invoices?: ServiceInvoiceDocument[];
 }
 
 export interface FuelLogEntry {

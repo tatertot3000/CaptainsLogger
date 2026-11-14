@@ -15,6 +15,8 @@ import {
   DollarSign,
   Droplet,
   Droplets,
+  ExternalLink,
+  FileText,
   FlaskConical,
   Fuel,
   Gauge,
@@ -23,6 +25,7 @@ import {
   Layers,
   LifeBuoy,
   Package,
+  Paperclip,
   Pencil,
   Plus,
   Search,
@@ -40,6 +43,7 @@ import {
   LinkedPartRequirement,
   MaintenancePhoto,
   MaintenanceSchedule,
+  ServiceInvoiceDocument,
   ServiceLogEntry,
   ServiceLogStatus,
   SystemCategory,
@@ -53,7 +57,15 @@ import {
   ScheduleStatus,
 } from '../utils/vendors';
 import { IS_DEMO_MODE } from '../utils/demoMode';
-import { findMatchingManual, openOrShareManualPdf } from '../db/pdfStorage';
+import {
+  deleteInvoicePdfFile,
+  findMatchingManual,
+  formatFileSize,
+  openOrShareInvoicePdf,
+  openOrShareManualPdf,
+  readFileAsDataUrl,
+  saveInvoicePdfFile,
+} from '../db/pdfStorage';
 import { ManualsLibrarySection } from './ManualsLibrarySection';
 
 interface MaintenanceViewProps {
@@ -240,6 +252,51 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
   const [editLogExtraPartId, setEditLogExtraPartId] = useState('');
   const [isEditLogAddingCustomCategory, setIsEditLogAddingCustomCategory] = useState(false);
   const [editLogCustomCategoryInput, setEditLogCustomCategoryInput] = useState('');
+
+  // Invoice & Receipt PDF attachments state
+  const [logInvoices, setLogInvoices] = useState<ServiceInvoiceDocument[]>([]);
+  const [editLogInvoices, setEditLogInvoices] = useState<ServiceInvoiceDocument[]>([]);
+  const [isUploadingInvoice, setIsUploadingInvoice] = useState(false);
+
+  const handleUploadInvoiceFiles = async (
+    files: FileList | null,
+    setter: React.Dispatch<React.SetStateAction<ServiceInvoiceDocument[]>>
+  ) => {
+    if (!files || files.length === 0) return;
+    setIsUploadingInvoice(true);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const docs: ServiceInvoiceDocument[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const id = 'inv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+        await saveInvoicePdfFile(id, file);
+
+        let dataUrl: string | undefined;
+        if (file.size <= 4 * 1024 * 1024) {
+          try {
+            dataUrl = await readFileAsDataUrl(file);
+          } catch {
+            // Continue without dataUrl
+          }
+        }
+
+        docs.push({
+          id,
+          fileName: file.name,
+          fileSizeBytes: file.size,
+          addedAt: today,
+          dataUrl,
+        });
+      }
+      setter((prev) => [...prev, ...docs]);
+    } catch (err) {
+      console.error('Failed to process invoice PDF:', err);
+      alert('Could not attach PDF file. Please ensure it is a valid PDF document.');
+    } finally {
+      setIsUploadingInvoice(false);
+    }
+  };
 
   // Logbook filter states
   const [historySelectedSystems, setHistorySelectedSystems] = useState<string[]>([]);
@@ -538,13 +595,19 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
         const matchesPhotoCaption = log.photos?.some(
           (ph) => ph.caption && ph.caption.toLowerCase().includes(q)
         );
+        const matchesInvoices = log.invoices?.some(
+          (inv) =>
+            inv.fileName.toLowerCase().includes(q) ||
+            (inv.notes && inv.notes.toLowerCase().includes(q))
+        );
         if (
           !matchesTitle &&
           !matchesCategory &&
           !matchesNotes &&
           !matchesDate &&
           !matchesParts &&
-          !matchesPhotoCaption
+          !matchesPhotoCaption &&
+          !matchesInvoices
         ) {
           return false;
         }
@@ -566,6 +629,11 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
   const handleDeleteServiceLog = (id: string) => {
     onUpdateDb((prev) => {
       const logToDelete = prev.serviceLogs.find((l) => l.id === id);
+      if (logToDelete?.invoices) {
+        for (const inv of logToDelete.invoices) {
+          void deleteInvoicePdfFile(inv.id);
+        }
+      }
       let updatedSchedules = prev.schedules;
       if (logToDelete?.scheduleId && (logToDelete.status || 'completed') === 'completed') {
         const remainingLogs = prev.serviceLogs.filter(
@@ -616,6 +684,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
     setEditLogCost(log.cost ? String(log.cost) : '');
     setEditLogNotes(log.notes || '');
     setEditLogPhotos([...(log.photos || [])]);
+    setEditLogInvoices([...(log.invoices || [])]);
     setEditLogPartsUsed([...(log.partsUsed || [])]);
     setEditLogExtraPartId('');
     setIsEditLogAddingCustomCategory(false);
@@ -645,6 +714,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
           cost: costNum,
           notes: editLogNotes.trim(),
           photos: editLogPhotos.length > 0 ? editLogPhotos : undefined,
+          invoices: editLogInvoices.length > 0 ? editLogInvoices : undefined,
           partsUsed: editLogPartsUsed,
         };
       });
@@ -700,6 +770,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
 
     setStatusToast('Service logbook entry updated.');
     setEditingLog(null);
+    setEditLogInvoices([]);
   };
 
   const handleAddExtraPartToEditLog = () => {
@@ -807,6 +878,49 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
     });
   };
 
+  const handleQuickAddInvoicesToLog = async (logId: string, files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const docs: ServiceInvoiceDocument[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const id = 'inv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+        await saveInvoicePdfFile(id, file);
+
+        let dataUrl: string | undefined;
+        if (file.size <= 4 * 1024 * 1024) {
+          try {
+            dataUrl = await readFileAsDataUrl(file);
+          } catch {
+            // Continue without dataUrl
+          }
+        }
+
+        docs.push({
+          id,
+          fileName: file.name,
+          fileSizeBytes: file.size,
+          addedAt: today,
+          dataUrl,
+        });
+      }
+
+      onUpdateDb((prev) => ({
+        ...prev,
+        serviceLogs: prev.serviceLogs.map((l) =>
+          l.id === logId
+            ? { ...l, invoices: [...(l.invoices || []), ...docs] }
+            : l
+        ),
+      }));
+      setStatusToast(`Attached ${docs.length} invoice PDF${docs.length === 1 ? '' : 's'}.`);
+    } catch (err) {
+      console.error('Failed to attach invoice PDF:', err);
+      alert('Could not attach PDF file.');
+    }
+  };
+
   const handleDeletePhotoFromLog = (logId: string, photoId: string) => {
     onUpdateDb((prev) => ({
       ...prev,
@@ -841,6 +955,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
     setLogNotes('');
     setDeductSpares(true);
     setLogPhotos([]);
+    setLogInvoices([]);
   };
 
   const handleAddExtraPartToLog = () => {
@@ -903,6 +1018,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
         notes: logNotes.trim() || defaultNotes,
         status: logStatus,
         photos: logPhotos.length > 0 ? logPhotos : undefined,
+        invoices: logInvoices.length > 0 ? logInvoices : undefined,
       };
 
       const updatedSchedules = prev.schedules.map((s) => {
@@ -949,6 +1065,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
     setStatusToast(`Service logged as ${statusLabel}: "${loggingSchedule.title}". Added to Service Logbook.`);
     setLoggingSchedule(null);
     setLogPhotos([]);
+    setLogInvoices([]);
   };
 
   const handleAddLinkedItemToNewSchedule = () => {
@@ -2179,6 +2296,32 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                           <Calendar className="w-3 h-3 text-slate-500" />
                           {log.date}
                         </span>
+                        {log.invoices && log.invoices.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (log.invoices && log.invoices.length === 1) {
+                                void openOrShareInvoicePdf(log.invoices[0], log.title);
+                              } else {
+                                toggleLogExpanded(log.id);
+                              }
+                            }}
+                            className="text-[11px] font-semibold px-2 py-0.5 rounded-full border bg-sky-950/40 text-sky-300 border-sky-600/40 hover:bg-sky-900/50 flex items-center gap-1 transition"
+                            title={
+                              log.invoices.length === 1
+                                ? `Click to open invoice PDF: ${log.invoices[0].fileName}`
+                                : `${log.invoices.length} invoice PDFs attached (click to view)`
+                            }
+                          >
+                            <FileText className="w-3 h-3 text-sky-400" />
+                            <span>
+                              {log.invoices.length === 1
+                                ? 'Invoice PDF'
+                                : `${log.invoices.length} Invoices`}
+                            </span>
+                          </button>
+                        )}
                       </div>
 
                       <div className="text-right text-xs shrink-0 flex items-center gap-2 ml-auto">
@@ -2313,6 +2456,54 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                     </div>
                   )}
 
+                  {/* Attached Invoices & Receipts */}
+                  {log.invoices && log.invoices.length > 0 && (
+                    <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-sky-300 flex items-center gap-1.5">
+                        <FileText className="w-3.5 h-3.5 text-sky-400" />
+                        Attached Invoices & Receipts ({log.invoices.length})
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {log.invoices.map((inv) => (
+                          <div
+                            key={inv.id}
+                            className="flex items-center justify-between gap-2.5 bg-slate-950/80 border border-slate-800 hover:border-slate-700 rounded-xl p-2.5 transition"
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                              <div className="w-8 h-8 rounded-lg bg-sky-950/80 border border-sky-800/60 flex items-center justify-center shrink-0">
+                                <FileText className="w-4 h-4 text-sky-400" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-semibold text-white truncate" title={inv.fileName}>
+                                  {inv.fileName}
+                                </div>
+                                <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                                  {inv.fileSizeBytes ? <span>{formatFileSize(inv.fileSizeBytes)}</span> : null}
+                                  <span>• {inv.addedAt}</span>
+                                </div>
+                                {inv.notes && (
+                                  <div className="text-[10px] text-slate-400 truncate italic">
+                                    {inv.notes}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => void openOrShareInvoicePdf(inv, log.title)}
+                              className="flex items-center gap-1 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition shrink-0"
+                              title="Open invoice PDF"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              <span>View PDF</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Footer with Edit, Add Photo & Delete entry actions */}
                   <div className="flex items-center justify-between pt-1.5 border-t border-slate-800/60 text-xs">
                     <div className="flex items-center gap-2">
@@ -2326,23 +2517,42 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                         <span>Edit</span>
                       </button>
                       {!IS_DEMO_MODE && (
-                        <label
-                          className="flex items-center gap-1 text-slate-400 hover:text-emerald-300 bg-slate-950/70 hover:bg-slate-800 border border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold transition cursor-pointer"
-                          title="Attach photo to this service log entry"
-                        >
-                          <Camera className="w-3 h-3 text-emerald-400" />
-                          <span>+ Photo</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            className="hidden"
-                            onChange={(e) => {
-                              void handleQuickAddPhotosToLog(log.id, e.target.files);
-                              e.target.value = '';
-                            }}
-                          />
-                        </label>
+                        <>
+                          <label
+                            className="flex items-center gap-1 text-slate-400 hover:text-emerald-300 bg-slate-950/70 hover:bg-slate-800 border border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold transition cursor-pointer"
+                            title="Attach photo to this service log entry"
+                          >
+                            <Camera className="w-3 h-3 text-emerald-400" />
+                            <span>+ Photo</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              className="hidden"
+                              onChange={(e) => {
+                                void handleQuickAddPhotosToLog(log.id, e.target.files);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                          <label
+                            className="flex items-center gap-1 text-slate-400 hover:text-sky-300 bg-slate-950/70 hover:bg-slate-800 border border-slate-800 rounded-lg px-2 py-1 text-[11px] font-semibold transition cursor-pointer"
+                            title="Attach invoice or receipt PDF to this service log entry"
+                          >
+                            <FileText className="w-3 h-3 text-sky-400" />
+                            <span>+ Invoice PDF</span>
+                            <input
+                              type="file"
+                              accept=".pdf,application/pdf"
+                              multiple
+                              className="hidden"
+                              onChange={(e) => {
+                                void handleQuickAddInvoicesToLog(log.id, e.target.files);
+                                e.target.value = '';
+                              }}
+                            />
+                          </label>
+                        </>
                       )}
                     </div>
                     <button
@@ -2694,6 +2904,85 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {/* Invoices & Receipts PDF Section */}
+            {!IS_DEMO_MODE ? (
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-sky-400 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5" />
+                    Invoices & Receipts ({logInvoices.length})
+                  </span>
+                  <label className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer transition">
+                    <Paperclip className="w-3 h-3" />
+                    <span>{isUploadingInvoice ? 'Uploading...' : '+ Upload Invoice PDF'}</span>
+                    <input
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      multiple
+                      disabled={isUploadingInvoice}
+                      className="hidden"
+                      onChange={(e) => {
+                        void handleUploadInvoiceFiles(e.target.files, setLogInvoices);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {logInvoices.length === 0 ? (
+                  <div className="text-[11px] text-slate-500 italic">
+                    Optional: Attach shipyard, contractor invoice, or parts receipt PDFs for this task.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {logInvoices.map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="flex items-center justify-between gap-2.5 bg-slate-900 border border-slate-800 rounded-lg p-2.5"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-8 h-8 rounded-lg bg-sky-950/80 border border-sky-800/60 flex items-center justify-center shrink-0">
+                            <FileText className="w-4 h-4 text-sky-400" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold text-white truncate" title={inv.fileName}>
+                              {inv.fileName}
+                            </div>
+                            <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                              {inv.fileSizeBytes ? <span>{formatFileSize(inv.fileSizeBytes)}</span> : null}
+                              <span>• {inv.addedAt}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => void openOrShareInvoicePdf(inv, loggingSchedule?.title)}
+                            className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition"
+                            title="Preview / Open PDF"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void deleteInvoicePdfFile(inv.id);
+                              setLogInvoices((prev) => prev.filter((i) => i.id !== inv.id));
+                            }}
+                            className="text-slate-500 hover:text-rose-400 p-1.5 hover:bg-slate-800 rounded-lg transition"
+                            title="Remove invoice"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -3124,6 +3413,85 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
               </div>
             ) : null}
 
+            {/* Invoices & Receipts PDF Section */}
+            {!IS_DEMO_MODE ? (
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-sky-400 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5" />
+                    Invoices & Receipts ({editLogInvoices.length})
+                  </span>
+                  <label className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer transition">
+                    <Paperclip className="w-3 h-3" />
+                    <span>{isUploadingInvoice ? 'Uploading...' : '+ Upload Invoice PDF'}</span>
+                    <input
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      multiple
+                      disabled={isUploadingInvoice}
+                      className="hidden"
+                      onChange={(e) => {
+                        void handleUploadInvoiceFiles(e.target.files, setEditLogInvoices);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {editLogInvoices.length === 0 ? (
+                  <div className="text-[11px] text-slate-500 italic">
+                    Optional: Attach shipyard, contractor invoice, or parts receipt PDFs for this task.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {editLogInvoices.map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="flex items-center justify-between gap-2.5 bg-slate-900 border border-slate-800 rounded-lg p-2.5"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-8 h-8 rounded-lg bg-sky-950/80 border border-sky-800/60 flex items-center justify-center shrink-0">
+                            <FileText className="w-4 h-4 text-sky-400" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold text-white truncate" title={inv.fileName}>
+                              {inv.fileName}
+                            </div>
+                            <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                              {inv.fileSizeBytes ? <span>{formatFileSize(inv.fileSizeBytes)}</span> : null}
+                              <span>• {inv.addedAt}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => void openOrShareInvoicePdf(inv, editLogTitle)}
+                            className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition"
+                            title="Preview / Open PDF"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void deleteInvoicePdfFile(inv.id);
+                              setEditLogInvoices((prev) => prev.filter((i) => i.id !== inv.id));
+                            }}
+                            className="text-slate-500 hover:text-rose-400 p-1.5 hover:bg-slate-800 rounded-lg transition"
+                            title="Remove invoice"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
             {/* Actions */}
             <div className="flex justify-end gap-2 pt-2">
               <button
@@ -3547,6 +3915,85 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {/* Invoices & Receipts PDF Section */}
+            {!IS_DEMO_MODE ? (
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-sky-400 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5" />
+                    Invoices & Receipts ({logInvoices.length})
+                  </span>
+                  <label className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer transition">
+                    <Paperclip className="w-3 h-3" />
+                    <span>{isUploadingInvoice ? 'Uploading...' : '+ Upload Invoice PDF'}</span>
+                    <input
+                      type="file"
+                      accept=".pdf,application/pdf"
+                      multiple
+                      disabled={isUploadingInvoice}
+                      className="hidden"
+                      onChange={(e) => {
+                        void handleUploadInvoiceFiles(e.target.files, setLogInvoices);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {logInvoices.length === 0 ? (
+                  <div className="text-[11px] text-slate-500 italic">
+                    Optional: Attach shipyard, contractor invoice, or parts receipt PDFs for this task.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {logInvoices.map((inv) => (
+                      <div
+                        key={inv.id}
+                        className="flex items-center justify-between gap-2.5 bg-slate-900 border border-slate-800 rounded-lg p-2.5"
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <div className="w-8 h-8 rounded-lg bg-sky-950/80 border border-sky-800/60 flex items-center justify-center shrink-0">
+                            <FileText className="w-4 h-4 text-sky-400" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-xs font-semibold text-white truncate" title={inv.fileName}>
+                              {inv.fileName}
+                            </div>
+                            <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                              {inv.fileSizeBytes ? <span>{formatFileSize(inv.fileSizeBytes)}</span> : null}
+                              <span>• {inv.addedAt}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => void openOrShareInvoicePdf(inv, loggingSchedule?.title)}
+                            className="p-1.5 text-slate-400 hover:text-sky-300 hover:bg-slate-800 rounded-lg transition"
+                            title="Preview / Open PDF"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void deleteInvoicePdfFile(inv.id);
+                              setLogInvoices((prev) => prev.filter((i) => i.id !== inv.id));
+                            }}
+                            className="text-slate-500 hover:text-rose-400 p-1.5 hover:bg-slate-800 rounded-lg transition"
+                            title="Remove invoice"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

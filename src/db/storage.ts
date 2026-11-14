@@ -1265,6 +1265,7 @@ export function generateServiceHistoryCsv(db: CaptainsDatabase): string {
     'Task / Repair Title',
     'Parts & Consumables Used',
     'Cost ($)',
+    'Invoices',
     'Notes',
   ];
   const partsById = new Map(db.parts.map((p) => [p.id, p]));
@@ -1277,7 +1278,8 @@ export function generateServiceHistoryCsv(db: CaptainsDatabase): string {
         return `${name} (${u.quantityNeeded} ${unit})`;
       })
       .join('; ');
-    return [s.date, s.engineHours, s.category, s.title, partsText, s.cost, s.notes];
+    const invoicesText = (s.invoices || []).map((i) => i.fileName).join('; ');
+    return [s.date, s.engineHours, s.category, s.title, partsText, s.cost, invoicesText, s.notes];
   });
   return [headers.join(','), ...rows.map((r) => r.map(escapeCsvCell).join(','))].join('\n');
 }
