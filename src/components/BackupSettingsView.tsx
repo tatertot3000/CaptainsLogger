@@ -9,6 +9,7 @@ import {
   Copy,
   Download,
   Eye,
+  EyeOff,
   FileSpreadsheet,
   HardDrive,
   Image as ImageIcon,
@@ -85,10 +86,27 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
   const [sbKey, setSbKey] = useState(supabaseConfig.supabaseAnonKey);
   const [sbBoatId, setSbBoatId] = useState(supabaseConfig.boatSyncId);
   const [sbEnabled, setSbEnabled] = useState(supabaseConfig.enabled);
+  const [showSbKey, setShowSbKey] = useState(false);
 
   useEffect(() => {
+    setSbUrl(supabaseConfig.supabaseUrl);
+    setSbKey(supabaseConfig.supabaseAnonKey);
     setSbBoatId(supabaseConfig.boatSyncId);
-  }, [supabaseConfig.boatSyncId]);
+    setSbEnabled(supabaseConfig.enabled);
+  }, [supabaseConfig]);
+
+  const handleClearSupabaseConfig = () => {
+    setSbUrl('');
+    setSbKey('');
+    setSbEnabled(false);
+    onSaveSupabaseConfig({
+      supabaseUrl: '',
+      supabaseAnonKey: '',
+      boatSyncId: sbBoatId || 'boat-sync',
+      enabled: false,
+    });
+    showToast('Supabase credentials cleared. Cloud sync is disabled.');
+  };
 
   // Vessel profile form
   const [name, setName] = useState(db.vessel.name);
@@ -637,16 +655,45 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs text-slate-400 mb-1">
-                  Supabase Anon / Public API Key
-                </label>
-                <input
-                  type="password"
-                  placeholder="eyYourAnonKeyHere"
-                  value={sbKey}
-                  onChange={(e) => setSbKey(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs text-slate-400">
+                    Supabase Anon / Public API Key
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowSbKey(!showSbKey)}
+                    className="text-[11px] text-slate-400 hover:text-sky-400 flex items-center gap-1 transition"
+                  >
+                    {showSbKey ? (
+                      <>
+                        <EyeOff className="w-3 h-3" /> Hide
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-3 h-3" /> Show
+                      </>
+                    )}
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showSbKey ? 'text' : 'password'}
+                    placeholder="Leave blank for local offline mode"
+                    value={sbKey}
+                    onChange={(e) => setSbKey(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-3 pr-8 py-2 text-xs text-white font-mono"
+                  />
+                  {sbKey && (
+                    <button
+                      type="button"
+                      onClick={() => setSbKey('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                      title="Clear key input"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3 items-end">
@@ -726,6 +773,17 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
                   <Download className="w-3.5 h-3.5" />
                   <span>Pull from Cloud</span>
                 </button>
+                {(sbKey || sbUrl || supabaseConfig.enabled) && (
+                  <button
+                    type="button"
+                    onClick={handleClearSupabaseConfig}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-rose-950/60 text-slate-300 hover:text-rose-300 border border-slate-700 hover:border-rose-700/50 transition"
+                    title="Clear saved Supabase credentials and disable cloud sync"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Clear & Disconnect</span>
+                  </button>
+                )}
               </div>
 
               <button
