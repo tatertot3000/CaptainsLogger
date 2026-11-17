@@ -18,9 +18,12 @@ import {
 } from 'lucide-react';
 import { CaptainsDatabase } from './types';
 import {
+  hasMissingPhotos,
+  hasPhotos,
   isInitialSampleDatabase,
   loadDatabase,
   loadDatabaseFromIndexedDB,
+  restorePhotosFromSource,
   saveDatabase,
 } from './db/storage';
 import {
@@ -89,8 +92,16 @@ export const App: React.FC = () => {
           const localTime = new Date(workingDb.exportedAt || 0).getTime();
           const diskIsSample = isInitialSampleDatabase(diskRes.data);
           const localIsSample = isInitialSampleDatabase(workingDb);
-          if (!diskIsSample && (localIsSample || diskTime > localTime)) {
-            workingDb = diskRes.data;
+          const localMissingPhotos = hasMissingPhotos(workingDb) && hasPhotos(diskRes.data);
+
+          if (
+            !diskIsSample &&
+            (localIsSample || diskTime > localTime || localMissingPhotos || direction === 'pull')
+          ) {
+            workingDb = restorePhotosFromSource(
+              diskTime > localTime ? diskRes.data : workingDb,
+              diskRes.data
+            );
             updatedFromRemote = true;
           }
         }
@@ -104,11 +115,16 @@ export const App: React.FC = () => {
           const localTime = new Date(workingDb.exportedAt || 0).getTime();
           const cloudIsSample = isInitialSampleDatabase(cloudRes.data);
           const localIsSample = isInitialSampleDatabase(workingDb);
+          const localMissingPhotos = hasMissingPhotos(workingDb) && hasPhotos(cloudRes.data);
+
           if (
             direction === 'pull' ||
-            (!cloudIsSample && (localIsSample || cloudTime > localTime))
+            (!cloudIsSample && (localIsSample || cloudTime > localTime || localMissingPhotos))
           ) {
-            workingDb = cloudRes.data;
+            workingDb = restorePhotosFromSource(
+              cloudTime > localTime ? cloudRes.data : workingDb,
+              cloudRes.data
+            );
             updatedFromRemote = true;
           }
           if (
@@ -193,8 +209,10 @@ export const App: React.FC = () => {
         const currTime = new Date(currentDb.exportedAt || 0).getTime();
         const idbIsSample = isInitialSampleDatabase(idbDb);
         const currIsSample = isInitialSampleDatabase(currentDb);
-        if (!idbIsSample && (currIsSample || idbTime >= currTime)) {
-          return idbDb;
+        const currMissingPhotos = hasMissingPhotos(currentDb) && hasPhotos(idbDb);
+
+        if (!idbIsSample && (currIsSample || idbTime >= currTime || currMissingPhotos)) {
+          return restorePhotosFromSource(idbDb, idbDb);
         }
         return currentDb;
       });

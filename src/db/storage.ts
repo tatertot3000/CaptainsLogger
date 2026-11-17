@@ -5,7 +5,7 @@ import { CaptainsDatabase, PartItem, MaintenanceSchedule, VesselManual, SailTrip
 import { IS_DEMO_MODE } from '../utils/demoMode';
 
 const STORAGE_KEY = 'captains_logger_snapshot_v1';
-const IDB_NAME = 'CaptainsLoggerDB';
+const IDB_NAME = 'CaptainsLoggerDB_v2';
 const IDB_STORE = 'snapshots';
 
 export const DEFAULT_CONSUMABLE_ITEMS: PartItem[] = [
@@ -1114,41 +1114,93 @@ export function loadDatabaseFromIndexedDB(): Promise<CaptainsDatabase | null> {
     .catch(() => null);
 }
 
-export function stripHeavyDataForLocalStorage(db: CaptainsDatabase): CaptainsDatabase {
+export function hasPhotos(db?: CaptainsDatabase | null): boolean {
+  if (!db) return false;
+  const schedPhotos = (db.schedules || []).some((s) => s.photos?.some((p) => Boolean(p.dataUrl)));
+  const logPhotos = (db.serviceLogs || []).some((l) => l.photos?.some((p) => Boolean(p.dataUrl)));
+  const tripPhotos = (db.sailTrips || []).some((t) => t.photos?.some((p) => Boolean(p.dataUrl)));
+  return schedPhotos || logPhotos || tripPhotos;
+}
+
+export function hasMissingPhotos(db?: CaptainsDatabase | null): boolean {
+  if (!db) return false;
+  const schedEmpty = (db.schedules || []).some((s) => s.photos?.some((p) => !p.dataUrl));
+  const logEmpty = (db.serviceLogs || []).some((l) => l.photos?.some((p) => !p.dataUrl));
+  const tripEmpty = (db.sailTrips || []).some((t) => t.photos?.some((p) => !p.dataUrl));
+  return schedEmpty || logEmpty || tripEmpty;
+}
+
+export function restorePhotosFromSource(
+  target: CaptainsDatabase,
+  source: CaptainsDatabase
+): CaptainsDatabase {
+  const photoMap = new Map<string, string>();
+  for (const s of source.schedules || []) {
+    for (const p of s.photos || []) {
+      if (p.id && p.dataUrl) photoMap.set(p.id, p.dataUrl);
+    }
+  }
+  for (const l of source.serviceLogs || []) {
+    for (const p of l.photos || []) {
+      if (p.id && p.dataUrl) photoMap.set(p.id, p.dataUrl);
+    }
+  }
+  for (const t of source.sailTrips || []) {
+    for (const p of t.photos || []) {
+      if (p.id && p.dataUrl) photoMap.set(p.id, p.dataUrl);
+    }
+    for (const leg of t.legs || []) {
+      for (const p of leg.photos || []) {
+        if (p.id && p.dataUrl) photoMap.set(p.id, p.dataUrl);
+      }
+    }
+  }
+
+  if (photoMap.size === 0) return target;
+
   return {
-    ...db,
-    schedules: (db.schedules || []).map((s) => ({
+    ...target,
+    schedules: (target.schedules || []).map((s) => ({
       ...s,
       photos: s.photos?.map((p) => ({
         ...p,
-        dataUrl: p.dataUrl && p.dataUrl.startsWith('data:') ? '' : p.dataUrl,
+        dataUrl: p.dataUrl || photoMap.get(p.id) || '',
       })),
     })),
-    serviceLogs: (db.serviceLogs || []).map((l) => ({
+    serviceLogs: (target.serviceLogs || []).map((l) => ({
       ...l,
       photos: l.photos?.map((p) => ({
         ...p,
-        dataUrl: p.dataUrl && p.dataUrl.startsWith('data:') ? '' : p.dataUrl,
+        dataUrl: p.dataUrl || photoMap.get(p.id) || '',
       })),
-      invoices: l.invoices?.map((inv) => {
-        if (!inv.dataUrl) return inv;
-        const { dataUrl: _omitted, ...rest } = inv;
-        return rest;
-      }),
     })),
-    sailTrips: (db.sailTrips || []).map((t) => ({
+    sailTrips: (target.sailTrips || []).map((t) => ({
       ...t,
       photos: t.photos?.map((p) => ({
         ...p,
-        dataUrl: p.dataUrl && p.dataUrl.startsWith('data:') ? '' : p.dataUrl,
+        dataUrl: p.dataUrl || photoMap.get(p.id) || '',
       })),
       legs: (t.legs || []).map((leg) => ({
         ...leg,
         photos: leg.photos?.map((p) => ({
           ...p,
-          dataUrl: p.dataUrl && p.dataUrl.startsWith('data:') ? '' : p.dataUrl,
+          dataUrl: p.dataUrl || photoMap.get(p.id) || '',
         })),
       })),
+    })),
+  };
+}
+
+export function stripHeavyInvoicesForLocalStorage(db: CaptainsDatabase): CaptainsDatabase {
+  return {
+    ...db,
+    serviceLogs: (db.serviceLogs || []).map((l) => ({
+      ...l,
+      invoices: l.invoices?.map((inv) => {
+        if (!inv.dataUrl) return inv;
+        const { dataUrl: _omitted, ...rest } = inv;
+        return rest;
+      }),
     })),
   };
 }
@@ -1196,27 +1248,19 @@ export function saveDatabase(db: CaptainsDatabase, preserveTimestamp = false): v
     exportedAt: preserveTimestamp && db.exportedAt ? db.exportedAt : new Date().toISOString(),
   };
 
-  // 1. Always persist full-fidelity database in IndexedDB (no quota restrictions)
+  // 1. Always persist complete database (with all photos and data) in IndexedDB
   saveToIndexedDB(updated);
 
-  // 2. Persist in localStorage for instant synchronous startup
+  // 2. Persist in localStorage for instant synchronous offline startup
   try {
-    const jsonString = JSON.stringify(updated);
-    // If JSON is under 1.5MB, save complete database to localStorage
-    if (jsonString.length < 1.5 * 1024 * 1024) {
-      localStorage.setItem(STORAGE_KEY, jsonString);
-      return;
-    }
-    // If over 1.5MB, write stripped lightweight mirror to prevent QuotaExceededError
-    const lightweight = stripHeavyDataForLocalStorage(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(lightweight));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   } catch (err) {
-    console.warn('localStorage full write failed, saving lightweight mirror:', err);
+    console.warn('localStorage full write failed, saving without heavy invoices:', err);
     try {
-      const lightweight = stripHeavyDataForLocalStorage(updated);
+      const lightweight = stripHeavyInvoicesForLocalStorage(updated);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(lightweight));
     } catch (fallbackErr) {
-      console.error('Failed to save even lightweight database to localStorage:', fallbackErr);
+      console.error('Failed to save to localStorage:', fallbackErr);
     }
   }
 }

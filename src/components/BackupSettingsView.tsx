@@ -642,7 +642,7 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
                 </label>
                 <input
                   type="password"
-                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  placeholder="eyYourAnonKeyHere"
                   value={sbKey}
                   onChange={(e) => setSbKey(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-mono"
