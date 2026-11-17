@@ -273,7 +273,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
         await saveInvoicePdfFile(id, file);
 
         let dataUrl: string | undefined;
-        if (file.size <= 4 * 1024 * 1024) {
+        // Only embed dataUrl directly in JSON metadata for tiny receipts (<= 64KB).
+        // Larger PDFs are persisted efficiently in IndexedDB / native filesystem via saveInvoicePdfFile
+        if (file.size <= 64 * 1024) {
           try {
             dataUrl = await readFileAsDataUrl(file);
           } catch {
@@ -889,7 +891,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
         await saveInvoicePdfFile(id, file);
 
         let dataUrl: string | undefined;
-        if (file.size <= 4 * 1024 * 1024) {
+        // Only embed dataUrl directly in JSON metadata for tiny receipts (<= 64KB).
+        // Larger PDFs are persisted efficiently in IndexedDB / native filesystem via saveInvoicePdfFile
+        if (file.size <= 64 * 1024) {
           try {
             dataUrl = await readFileAsDataUrl(file);
           } catch {

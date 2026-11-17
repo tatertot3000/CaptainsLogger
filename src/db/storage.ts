@@ -1077,6 +1077,82 @@ function saveToIndexedDB(db: CaptainsDatabase): void {
     });
 }
 
+export function loadDatabaseFromIndexedDB(): Promise<CaptainsDatabase | null> {
+  if (IS_DEMO_MODE) {
+    return Promise.resolve(null);
+  }
+  if (typeof window === 'undefined' || !('indexedDB' in window)) {
+    return Promise.resolve(null);
+  }
+  return getSnapshotsIdb()
+    .then((idb) => {
+      return new Promise<CaptainsDatabase | null>((resolve) => {
+        try {
+          const tx = idb.transaction(IDB_STORE, 'readonly');
+          const req = tx.objectStore(IDB_STORE).get('latest');
+          req.onsuccess = () => {
+            const result = req.result as CaptainsDatabase | undefined;
+            if (result && result.vessel && Array.isArray(result.schedules)) {
+              if (
+                result.exportedAt === SAMPLE_DB_EPOCH &&
+                result.vessel?.name === 'S/V Windward Spirit'
+              ) {
+                resolve(null);
+                return;
+              }
+              resolve(upgradeDatabaseSchema(result));
+            } else {
+              resolve(null);
+            }
+          };
+          req.onerror = () => resolve(null);
+        } catch {
+          resolve(null);
+        }
+      });
+    })
+    .catch(() => null);
+}
+
+export function stripHeavyDataForLocalStorage(db: CaptainsDatabase): CaptainsDatabase {
+  return {
+    ...db,
+    schedules: (db.schedules || []).map((s) => ({
+      ...s,
+      photos: s.photos?.map((p) => ({
+        ...p,
+        dataUrl: p.dataUrl && p.dataUrl.startsWith('data:') ? '' : p.dataUrl,
+      })),
+    })),
+    serviceLogs: (db.serviceLogs || []).map((l) => ({
+      ...l,
+      photos: l.photos?.map((p) => ({
+        ...p,
+        dataUrl: p.dataUrl && p.dataUrl.startsWith('data:') ? '' : p.dataUrl,
+      })),
+      invoices: l.invoices?.map((inv) => {
+        if (!inv.dataUrl) return inv;
+        const { dataUrl: _omitted, ...rest } = inv;
+        return rest;
+      }),
+    })),
+    sailTrips: (db.sailTrips || []).map((t) => ({
+      ...t,
+      photos: t.photos?.map((p) => ({
+        ...p,
+        dataUrl: p.dataUrl && p.dataUrl.startsWith('data:') ? '' : p.dataUrl,
+      })),
+      legs: (t.legs || []).map((leg) => ({
+        ...leg,
+        photos: leg.photos?.map((p) => ({
+          ...p,
+          dataUrl: p.dataUrl && p.dataUrl.startsWith('data:') ? '' : p.dataUrl,
+        })),
+      })),
+    })),
+  };
+}
+
 export function loadDatabase(): CaptainsDatabase {
   // In Public Demo Mode, always serve the pristine fictional sample database
   if (IS_DEMO_MODE) {
@@ -1119,12 +1195,30 @@ export function saveDatabase(db: CaptainsDatabase, preserveTimestamp = false): v
     ...db,
     exportedAt: preserveTimestamp && db.exportedAt ? db.exportedAt : new Date().toISOString(),
   };
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-  } catch (err) {
-    console.error('Failed to save database to localStorage:', err);
-  }
+
+  // 1. Always persist full-fidelity database in IndexedDB (no quota restrictions)
   saveToIndexedDB(updated);
+
+  // 2. Persist in localStorage for instant synchronous startup
+  try {
+    const jsonString = JSON.stringify(updated);
+    // If JSON is under 1.5MB, save complete database to localStorage
+    if (jsonString.length < 1.5 * 1024 * 1024) {
+      localStorage.setItem(STORAGE_KEY, jsonString);
+      return;
+    }
+    // If over 1.5MB, write stripped lightweight mirror to prevent QuotaExceededError
+    const lightweight = stripHeavyDataForLocalStorage(updated);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(lightweight));
+  } catch (err) {
+    console.warn('localStorage full write failed, saving lightweight mirror:', err);
+    try {
+      const lightweight = stripHeavyDataForLocalStorage(updated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(lightweight));
+    } catch (fallbackErr) {
+      console.error('Failed to save even lightweight database to localStorage:', fallbackErr);
+    }
+  }
 }
 
 export async function exportFileOrShare(

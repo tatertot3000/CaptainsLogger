@@ -17,7 +17,12 @@ import {
   X,
 } from 'lucide-react';
 import { CaptainsDatabase } from './types';
-import { isInitialSampleDatabase, loadDatabase, saveDatabase } from './db/storage';
+import {
+  isInitialSampleDatabase,
+  loadDatabase,
+  loadDatabaseFromIndexedDB,
+  saveDatabase,
+} from './db/storage';
 import {
   loadSupabaseConfig,
   pullFromLocalDiskFile,
@@ -180,6 +185,21 @@ export const App: React.FC = () => {
       return;
     }
 
+    // Fast-path: Check IndexedDB immediately to hydrate full-fidelity snapshot & photos
+    void loadDatabaseFromIndexedDB().then((idbDb) => {
+      if (!idbDb) return;
+      setDb((currentDb) => {
+        const idbTime = new Date(idbDb.exportedAt || 0).getTime();
+        const currTime = new Date(currentDb.exportedAt || 0).getTime();
+        const idbIsSample = isInitialSampleDatabase(idbDb);
+        const currIsSample = isInitialSampleDatabase(currentDb);
+        if (!idbIsSample && (currIsSample || idbTime >= currTime)) {
+          return idbDb;
+        }
+        return currentDb;
+      });
+    });
+
     void syncAllLayers(db, supabaseConfig, 'auto');
 
     const handleOnline = () => {
@@ -216,7 +236,9 @@ export const App: React.FC = () => {
       }
 
       // Push asynchronously to Option A (Disk) and Option B (Supabase Cloud)
-      void syncAllLayers(next, workingSbConfig, 'push');
+      setTimeout(() => {
+        void syncAllLayers(next, workingSbConfig, 'push');
+      }, 0);
       return next;
     });
   };
