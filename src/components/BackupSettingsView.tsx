@@ -29,12 +29,14 @@ import {
 } from 'lucide-react';
 import { CaptainsDatabase, FuelType } from '../types';
 import {
+  buildPortableBackupDatabase,
   exportFileOrShare,
   generateFuelCsv,
   generatePartsCatalogCsv,
   generateServiceHistoryCsv,
   getInitialEmptyDatabase,
   getInitialSampleDatabase,
+  migrateDatabaseMediaToBinaryStore,
 } from '../db/storage';
 import {
   SUPABASE_SETUP_SQL,
@@ -428,11 +430,13 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
 
   const handleExportJson = async () => {
     if (IS_DEMO_MODE) return;
+    showToast('Packaging full backup with photos & PDFs...');
+    const portableDb = await buildPortableBackupDatabase(db);
     const dateSlug = new Date().toISOString().slice(0, 10);
     const filename = `captains-logger-backup-${dateSlug}.json`;
     await exportFileOrShare(
       filename,
-      JSON.stringify(db, null, 2),
+      JSON.stringify(portableDb, null, 2),
       'application/json',
       "Captain's Logger Full Backup"
     );
@@ -442,8 +446,9 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
   const handleCopyJson = async () => {
     if (IS_DEMO_MODE) return;
     try {
-      await navigator.clipboard.writeText(JSON.stringify(db, null, 2));
-      showToast('Database JSON copied to clipboard!');
+      const portableDb = await buildPortableBackupDatabase(db);
+      await navigator.clipboard.writeText(JSON.stringify(portableDb, null, 2));
+      showToast('Full database JSON copied to clipboard!');
     } catch {
       showToast('Could not copy to clipboard.');
     }
@@ -454,28 +459,29 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const parsed = JSON.parse(String(reader.result)) as CaptainsDatabase;
         if (!parsed.vessel || !Array.isArray(parsed.schedules)) {
           throw new Error('Invalid backup file structure');
         }
-        onUpdateDb(() => parsed);
-        setName(parsed.vessel.name);
-        const importedSyncId = vesselNameToBoatSyncId(parsed.vessel.name);
+        const { updatedDb } = await migrateDatabaseMediaToBinaryStore(parsed);
+        onUpdateDb(() => updatedDb);
+        setName(updatedDb.vessel.name);
+        const importedSyncId = vesselNameToBoatSyncId(updatedDb.vessel.name);
         setSbBoatId(importedSyncId);
         onSaveSupabaseConfig({
           ...supabaseConfig,
           boatSyncId: importedSyncId,
         });
-        setBoatMakeModel(parsed.vessel.boatMakeModel);
-        setYear(String(parsed.vessel.year));
-        setEngineMakeModel(parsed.vessel.engineMakeModel);
-        setEngineSerial(parsed.vessel.engineSerial);
-        setFuelType(parsed.vessel.fuelType || 'diesel');
-        setFuelCapacity(String(parsed.vessel.fuelCapacityGallons));
-        setDefaultGph(String(parsed.vessel.defaultBurnRateGph));
-        showToast('Backup restored and synced!');
+        setBoatMakeModel(updatedDb.vessel.boatMakeModel);
+        setYear(String(updatedDb.vessel.year));
+        setEngineMakeModel(updatedDb.vessel.engineMakeModel);
+        setEngineSerial(updatedDb.vessel.engineSerial);
+        setFuelType(updatedDb.vessel.fuelType || 'diesel');
+        setFuelCapacity(String(updatedDb.vessel.fuelCapacityGallons));
+        setDefaultGph(String(updatedDb.vessel.defaultBurnRateGph));
+        showToast('Backup restored with all photos & PDFs!');
       } catch (err) {
         alert('Could not restore backup file: ' + (err as Error).message);
       }

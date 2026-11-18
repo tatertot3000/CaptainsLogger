@@ -2,6 +2,12 @@ import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { VesselManual } from '../types';
+import {
+  buildPdfMediaKey,
+  deleteMediaFile,
+  getMediaBlob,
+  saveMediaBlob,
+} from './mediaStorage';
 
 const PDF_IDB_NAME = 'CaptainsLoggerManualsDB';
 const PDF_IDB_STORE = 'pdf_files';
@@ -44,56 +50,13 @@ function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
-export async function saveManualPdfFile(manualId: string, file: File): Promise<void> {
-  const buffer = await file.arrayBuffer();
-
-  // 1. Save in IndexedDB (works on all browsers + Android WebView)
-  try {
-    const db = await openPdfIdb();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(PDF_IDB_STORE, 'readwrite');
-      tx.objectStore(PDF_IDB_STORE).put(
-        {
-          manualId,
-          fileName: file.name,
-          fileSizeBytes: file.size,
-          mimeType: file.type || 'application/pdf',
-          buffer,
-          savedAt: new Date().toISOString(),
-        },
-        manualId
-      );
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch (err) {
-    console.warn('Failed to save PDF to IndexedDB:', err);
-  }
-
-  // 2. If running inside native Android/iOS APK, also persist to native Directory.Data
-  if (Capacitor.isNativePlatform()) {
-    try {
-      const base64Data = arrayBufferToBase64(buffer);
-      await Filesystem.writeFile({
-        path: `manuals/${manualId}.pdf`,
-        data: base64Data,
-        directory: Directory.Data,
-        recursive: true,
-      });
-    } catch (err) {
-      console.warn('Failed to save PDF to native Directory.Data:', err);
-    }
-  }
-}
-
-export async function getManualPdfBlob(manualId: string): Promise<Blob | null> {
-  // 1. Try IndexedDB first
+async function readLegacyIdbPdf(legacyIdbKey: string): Promise<Blob | null> {
   try {
     const db = await openPdfIdb();
     const record = await new Promise<{ buffer?: ArrayBuffer; mimeType?: string } | undefined>(
       (resolve, reject) => {
         const tx = db.transaction(PDF_IDB_STORE, 'readonly');
-        const req = tx.objectStore(PDF_IDB_STORE).get(manualId);
+        const req = tx.objectStore(PDF_IDB_STORE).get(legacyIdbKey);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
       }
@@ -102,36 +65,37 @@ export async function getManualPdfBlob(manualId: string): Promise<Blob | null> {
       return new Blob([record.buffer], { type: record.mimeType || 'application/pdf' });
     }
   } catch (err) {
-    console.warn('Failed to read PDF from IndexedDB:', err);
+    console.warn('Failed to read PDF from legacy IndexedDB:', err);
   }
-
-  // 2. Try native Capacitor Directory.Data fallback
-  if (Capacitor.isNativePlatform()) {
-    try {
-      const read = await Filesystem.readFile({
-        path: `manuals/${manualId}.pdf`,
-        directory: Directory.Data,
-      });
-      if (typeof read.data === 'string') {
-        const bytes = base64ToUint8Array(read.data);
-        return new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' });
-      } else if (read.data instanceof Blob) {
-        return read.data;
-      }
-    } catch {
-      // Not found in native storage
-    }
-  }
-
   return null;
 }
 
-export async function deleteManualPdfFile(manualId: string): Promise<void> {
+async function readLegacyNativePdf(nativeSubPath: string): Promise<Blob | null> {
+  if (!Capacitor.isNativePlatform()) return null;
+  try {
+    const read = await Filesystem.readFile({
+      path: nativeSubPath,
+      directory: Directory.Data,
+    });
+    if (typeof read.data === 'string') {
+      const bytes = base64ToUint8Array(read.data);
+      return new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' });
+    }
+    if (read.data instanceof Blob) {
+      return read.data;
+    }
+  } catch {
+    // Not found in legacy native storage
+  }
+  return null;
+}
+
+async function deleteLegacyPdf(legacyIdbKey: string, nativeSubPath: string): Promise<void> {
   try {
     const db = await openPdfIdb();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(PDF_IDB_STORE, 'readwrite');
-      tx.objectStore(PDF_IDB_STORE).delete(manualId);
+      tx.objectStore(PDF_IDB_STORE).delete(legacyIdbKey);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -142,13 +106,37 @@ export async function deleteManualPdfFile(manualId: string): Promise<void> {
   if (Capacitor.isNativePlatform()) {
     try {
       await Filesystem.deleteFile({
-        path: `manuals/${manualId}.pdf`,
+        path: nativeSubPath,
         directory: Directory.Data,
       });
     } catch {
       // Ignore
     }
   }
+}
+
+export async function saveManualPdfFile(manualId: string, file: File): Promise<string> {
+  const mediaKey = buildPdfMediaKey('manual', manualId);
+  await saveMediaBlob(mediaKey, file, {
+    fileName: file.name,
+    mimeType: file.type || 'application/pdf',
+  });
+  return mediaKey;
+}
+
+export async function getManualPdfBlob(manualId: string): Promise<Blob | null> {
+  const unified = await getMediaBlob(buildPdfMediaKey('manual', manualId));
+  if (unified) return unified;
+
+  const legacyIdb = await readLegacyIdbPdf(manualId);
+  if (legacyIdb) return legacyIdb;
+
+  return readLegacyNativePdf(`manuals/${manualId}.pdf`);
+}
+
+export async function deleteManualPdfFile(manualId: string): Promise<void> {
+  await deleteMediaFile(buildPdfMediaKey('manual', manualId));
+  await deleteLegacyPdf(manualId, `manuals/${manualId}.pdf`);
 }
 
 export function readFileAsDataUrl(file: File): Promise<string> {
@@ -160,89 +148,28 @@ export function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-export async function saveInvoicePdfFile(invoiceId: string, file: File): Promise<void> {
-  const buffer = await file.arrayBuffer();
-
-  // 1. Save in IndexedDB
-  try {
-    const db = await openPdfIdb();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(PDF_IDB_STORE, 'readwrite');
-      tx.objectStore(PDF_IDB_STORE).put(
-        {
-          manualId: `invoice_${invoiceId}`,
-          fileName: file.name,
-          fileSizeBytes: file.size,
-          mimeType: file.type || 'application/pdf',
-          buffer,
-          savedAt: new Date().toISOString(),
-        },
-        `invoice_${invoiceId}`
-      );
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch (err) {
-    console.warn('Failed to save invoice PDF to IndexedDB:', err);
-  }
-
-  // 2. If running inside native Android/iOS APK, persist to native Directory.Data
-  if (Capacitor.isNativePlatform()) {
-    try {
-      const base64Data = arrayBufferToBase64(buffer);
-      await Filesystem.writeFile({
-        path: `invoices/${invoiceId}.pdf`,
-        data: base64Data,
-        directory: Directory.Data,
-        recursive: true,
-      });
-    } catch (err) {
-      console.warn('Failed to save invoice PDF to native Directory.Data:', err);
-    }
-  }
+export async function saveInvoicePdfFile(invoiceId: string, file: File): Promise<string> {
+  const mediaKey = buildPdfMediaKey('invoice', invoiceId);
+  await saveMediaBlob(mediaKey, file, {
+    fileName: file.name,
+    mimeType: file.type || 'application/pdf',
+  });
+  return mediaKey;
 }
 
 export async function getInvoicePdfBlob(
   invoiceId: string,
   fallbackDataUrl?: string
 ): Promise<Blob | null> {
-  // 1. Try IndexedDB first
-  try {
-    const db = await openPdfIdb();
-    const record = await new Promise<{ buffer?: ArrayBuffer; mimeType?: string } | undefined>(
-      (resolve, reject) => {
-        const tx = db.transaction(PDF_IDB_STORE, 'readonly');
-        const req = tx.objectStore(PDF_IDB_STORE).get(`invoice_${invoiceId}`);
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      }
-    );
-    if (record?.buffer) {
-      return new Blob([record.buffer], { type: record.mimeType || 'application/pdf' });
-    }
-  } catch (err) {
-    console.warn('Failed to read invoice PDF from IndexedDB:', err);
-  }
+  const unified = await getMediaBlob(buildPdfMediaKey('invoice', invoiceId));
+  if (unified) return unified;
 
-  // 2. Try native Capacitor Directory.Data fallback
-  if (Capacitor.isNativePlatform()) {
-    try {
-      const read = await Filesystem.readFile({
-        path: `invoices/${invoiceId}.pdf`,
-        directory: Directory.Data,
-      });
-      if (typeof read.data === 'string') {
-        const bytes = base64ToUint8Array(read.data);
-        return new Blob([bytes.buffer as ArrayBuffer], { type: 'application/pdf' });
-      } else if (read.data instanceof Blob) {
-        return read.data;
-      }
-    } catch {
-      // Not found in native storage
-    }
-  }
+  const legacyIdb = await readLegacyIdbPdf(`invoice_${invoiceId}`);
+  if (legacyIdb) return legacyIdb;
 
-  // 3. Fallback to embedded dataUrl if present
+  const legacyNative = await readLegacyNativePdf(`invoices/${invoiceId}.pdf`);
+  if (legacyNative) return legacyNative;
+
   if (fallbackDataUrl && fallbackDataUrl.startsWith('data:')) {
     try {
       const bytes = base64ToUint8Array(fallbackDataUrl);
@@ -257,28 +184,8 @@ export async function getInvoicePdfBlob(
 }
 
 export async function deleteInvoicePdfFile(invoiceId: string): Promise<void> {
-  try {
-    const db = await openPdfIdb();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(PDF_IDB_STORE, 'readwrite');
-      tx.objectStore(PDF_IDB_STORE).delete(`invoice_${invoiceId}`);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  } catch {
-    // Ignore
-  }
-
-  if (Capacitor.isNativePlatform()) {
-    try {
-      await Filesystem.deleteFile({
-        path: `invoices/${invoiceId}.pdf`,
-        directory: Directory.Data,
-      });
-    } catch {
-      // Ignore
-    }
-  }
+  await deleteMediaFile(buildPdfMediaKey('invoice', invoiceId));
+  await deleteLegacyPdf(`invoice_${invoiceId}`, `invoices/${invoiceId}.pdf`);
 }
 
 export async function openOrShareInvoicePdf(

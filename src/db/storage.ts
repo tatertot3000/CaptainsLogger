@@ -1,12 +1,29 @@
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { CaptainsDatabase, PartItem, MaintenanceSchedule, VesselManual, SailTrip } from '../types';
+import {
+  CaptainsDatabase,
+  MaintenancePhoto,
+  MaintenanceSchedule,
+  PartItem,
+  SailTrip,
+  ServiceInvoiceDocument,
+  VesselManual,
+} from '../types';
 import { IS_DEMO_MODE } from '../utils/demoMode';
+import {
+  blobToDataUrl,
+  buildPdfMediaKey,
+  buildPhotoMediaKey,
+  getMediaBlob,
+  saveMediaDataUrl,
+} from './mediaStorage';
 
 const STORAGE_KEY = 'captains_logger_snapshot_v1';
 const IDB_NAME = 'CaptainsLoggerDB_v2';
+const LEGACY_IDB_NAME = 'CaptainsLoggerDB';
 const IDB_STORE = 'snapshots';
+const NATIVE_DB_FILE = 'captains-log.json';
 
 export const DEFAULT_CONSUMABLE_ITEMS: PartItem[] = [
   {
@@ -1077,117 +1094,436 @@ function saveToIndexedDB(db: CaptainsDatabase): void {
     });
 }
 
-export function loadDatabaseFromIndexedDB(): Promise<CaptainsDatabase | null> {
-  if (IS_DEMO_MODE) {
-    return Promise.resolve(null);
+function saveToNativeFilesystem(db: CaptainsDatabase): void {
+  if (!Capacitor.isNativePlatform()) return;
+  void Filesystem.writeFile({
+    path: NATIVE_DB_FILE,
+    data: JSON.stringify(db),
+    directory: Directory.Data,
+    encoding: Encoding.UTF8,
+  }).catch(() => {
+    // Ignore native write errors; IndexedDB/localStorage remain active
+  });
+}
+
+async function readFromNativeFilesystem(): Promise<CaptainsDatabase | null> {
+  if (!Capacitor.isNativePlatform()) return null;
+  try {
+    const read = await Filesystem.readFile({
+      path: NATIVE_DB_FILE,
+      directory: Directory.Data,
+      encoding: Encoding.UTF8,
+    });
+    if (typeof read.data !== 'string' || !read.data) return null;
+    const parsed = JSON.parse(read.data) as CaptainsDatabase;
+    if (parsed && parsed.vessel && Array.isArray(parsed.schedules)) {
+      if (parsed.exportedAt === SAMPLE_DB_EPOCH && parsed.vessel?.name === 'S/V Windward Spirit') {
+        return null;
+      }
+      return upgradeDatabaseSchema(parsed);
+    }
+  } catch {
+    // File may not exist yet on first launch
   }
-  if (typeof window === 'undefined' || !('indexedDB' in window)) {
-    return Promise.resolve(null);
-  }
-  return getSnapshotsIdb()
-    .then((idb) => {
-      return new Promise<CaptainsDatabase | null>((resolve) => {
-        try {
-          const tx = idb.transaction(IDB_STORE, 'readonly');
-          const req = tx.objectStore(IDB_STORE).get('latest');
-          req.onsuccess = () => {
-            const result = req.result as CaptainsDatabase | undefined;
-            if (result && result.vessel && Array.isArray(result.schedules)) {
-              if (
-                result.exportedAt === SAMPLE_DB_EPOCH &&
-                result.vessel?.name === 'S/V Windward Spirit'
-              ) {
-                resolve(null);
-                return;
-              }
-              resolve(upgradeDatabaseSchema(result));
-            } else {
-              resolve(null);
-            }
-          };
-          req.onerror = () => resolve(null);
-        } catch {
+  return null;
+}
+
+function readSnapshotFromIdb(idb: IDBDatabase): Promise<CaptainsDatabase | null> {
+  return new Promise<CaptainsDatabase | null>((resolve) => {
+    try {
+      if (!idb.objectStoreNames.contains(IDB_STORE)) {
+        resolve(null);
+        return;
+      }
+      const tx = idb.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get('latest');
+      req.onsuccess = () => {
+        const result = req.result as CaptainsDatabase | undefined;
+        if (result && result.vessel && Array.isArray(result.schedules)) {
+          if (
+            result.exportedAt === SAMPLE_DB_EPOCH &&
+            result.vessel?.name === 'S/V Windward Spirit'
+          ) {
+            resolve(null);
+            return;
+          }
+          resolve(upgradeDatabaseSchema(result));
+        } else {
           resolve(null);
         }
-      });
-    })
-    .catch(() => null);
+      };
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function readLegacySnapshotIdb(): Promise<CaptainsDatabase | null> {
+  if (typeof window === 'undefined' || !('indexedDB' in window)) return null;
+  try {
+    const legacyIdb = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = window.indexedDB.open(LEGACY_IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        // Avoid creating store if opening brand-new empty DB just to check
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const result = await readSnapshotFromIdb(legacyIdb);
+    legacyIdb.close();
+    return result;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadDatabaseFromIndexedDB(): Promise<CaptainsDatabase | null> {
+  if (IS_DEMO_MODE) {
+    return null;
+  }
+
+  let bestDb: CaptainsDatabase | null = null;
+  const pickNewer = (candidate: CaptainsDatabase | null) => {
+    if (!candidate || isInitialSampleDatabase(candidate)) return;
+    if (!bestDb) {
+      bestDb = candidate;
+      return;
+    }
+    const candTime = new Date(candidate.exportedAt || 0).getTime();
+    const bestTime = new Date(bestDb.exportedAt || 0).getTime();
+    if (candTime > bestTime) {
+      bestDb = candidate;
+    }
+  };
+
+  if (typeof window !== 'undefined' && 'indexedDB' in window) {
+    try {
+      const idb = await getSnapshotsIdb();
+      pickNewer(await readSnapshotFromIdb(idb));
+    } catch {
+      // Ignore IDB read errors
+    }
+
+    if (!bestDb) {
+      pickNewer(await readLegacySnapshotIdb());
+    }
+  }
+
+  // On native Android/iOS, also check Directory.Data/captains-log.json
+  pickNewer(await readFromNativeFilesystem());
+
+  return bestDb;
+}
+
+function allPhotoGroups(db: CaptainsDatabase): MaintenancePhoto[][] {
+  const groups: MaintenancePhoto[][] = [];
+  for (const p of db.parts || []) if (p.photos) groups.push(p.photos);
+  for (const s of db.schedules || []) if (s.photos) groups.push(s.photos);
+  for (const l of db.serviceLogs || []) if (l.photos) groups.push(l.photos);
+  for (const t of db.sailTrips || []) {
+    if (t.photos) groups.push(t.photos);
+    for (const leg of t.legs || []) if (leg.photos) groups.push(leg.photos);
+  }
+  return groups;
 }
 
 export function hasPhotos(db?: CaptainsDatabase | null): boolean {
   if (!db) return false;
-  const schedPhotos = (db.schedules || []).some((s) => s.photos?.some((p) => Boolean(p.dataUrl)));
-  const logPhotos = (db.serviceLogs || []).some((l) => l.photos?.some((p) => Boolean(p.dataUrl)));
-  const tripPhotos = (db.sailTrips || []).some((t) => t.photos?.some((p) => Boolean(p.dataUrl)));
-  return schedPhotos || logPhotos || tripPhotos;
+  return allPhotoGroups(db).some((list) =>
+    list.some((p) => Boolean(p.dataUrl || p.mediaKey))
+  );
 }
 
 export function hasMissingPhotos(db?: CaptainsDatabase | null): boolean {
   if (!db) return false;
-  const schedEmpty = (db.schedules || []).some((s) => s.photos?.some((p) => !p.dataUrl));
-  const logEmpty = (db.serviceLogs || []).some((l) => l.photos?.some((p) => !p.dataUrl));
-  const tripEmpty = (db.sailTrips || []).some((t) => t.photos?.some((p) => !p.dataUrl));
-  return schedEmpty || logEmpty || tripEmpty;
+  return allPhotoGroups(db).some((list) =>
+    list.some((p) => !p.dataUrl && !p.mediaKey)
+  );
 }
 
 export function restorePhotosFromSource(
   target: CaptainsDatabase,
   source: CaptainsDatabase
 ): CaptainsDatabase {
-  const photoMap = new Map<string, string>();
-  for (const s of source.schedules || []) {
-    for (const p of s.photos || []) {
-      if (p.id && p.dataUrl) photoMap.set(p.id, p.dataUrl);
-    }
-  }
-  for (const l of source.serviceLogs || []) {
-    for (const p of l.photos || []) {
-      if (p.id && p.dataUrl) photoMap.set(p.id, p.dataUrl);
-    }
-  }
-  for (const t of source.sailTrips || []) {
-    for (const p of t.photos || []) {
-      if (p.id && p.dataUrl) photoMap.set(p.id, p.dataUrl);
-    }
-    for (const leg of t.legs || []) {
-      for (const p of leg.photos || []) {
-        if (p.id && p.dataUrl) photoMap.set(p.id, p.dataUrl);
+  const photoMap = new Map<string, MaintenancePhoto>();
+  for (const list of allPhotoGroups(source)) {
+    for (const p of list) {
+      if (p.id && (p.dataUrl || p.mediaKey)) {
+        photoMap.set(p.id, p);
       }
     }
   }
 
   if (photoMap.size === 0) return target;
 
+  const mergeList = (photos?: MaintenancePhoto[]) =>
+    photos?.map((p) => {
+      if (p.dataUrl || p.mediaKey) return p;
+      const src = photoMap.get(p.id);
+      if (!src) return p;
+      return {
+        ...p,
+        dataUrl: src.dataUrl || p.dataUrl,
+        mediaKey: src.mediaKey || p.mediaKey,
+        mimeType: src.mimeType || p.mimeType,
+        sizeBytes: src.sizeBytes ?? p.sizeBytes,
+      };
+    });
+
   return {
     ...target,
+    parts: (target.parts || []).map((p) => ({
+      ...p,
+      photos: mergeList(p.photos),
+    })),
     schedules: (target.schedules || []).map((s) => ({
       ...s,
-      photos: s.photos?.map((p) => ({
-        ...p,
-        dataUrl: p.dataUrl || photoMap.get(p.id) || '',
-      })),
+      photos: mergeList(s.photos),
     })),
     serviceLogs: (target.serviceLogs || []).map((l) => ({
       ...l,
-      photos: l.photos?.map((p) => ({
-        ...p,
-        dataUrl: p.dataUrl || photoMap.get(p.id) || '',
-      })),
+      photos: mergeList(l.photos),
     })),
     sailTrips: (target.sailTrips || []).map((t) => ({
       ...t,
-      photos: t.photos?.map((p) => ({
-        ...p,
-        dataUrl: p.dataUrl || photoMap.get(p.id) || '',
-      })),
+      photos: mergeList(t.photos),
       legs: (t.legs || []).map((leg) => ({
         ...leg,
-        photos: leg.photos?.map((p) => ({
-          ...p,
-          dataUrl: p.dataUrl || photoMap.get(p.id) || '',
-        })),
+        photos: mergeList(leg.photos),
       })),
     })),
+  };
+}
+
+/**
+ * Extracts inline base64 data: URIs from photos & small invoices into the persistent binary store
+ * (Capacitor Directory.Data/media + IndexedDB) so logbook metadata stays tiny without losing media.
+ */
+export async function migrateDatabaseMediaToBinaryStore(
+  db: CaptainsDatabase
+): Promise<{ updatedDb: CaptainsDatabase; migratedCount: number }> {
+  if (IS_DEMO_MODE) {
+    return { updatedDb: db, migratedCount: 0 };
+  }
+
+  let migratedCount = 0;
+
+  const migratePhotos = async (
+    photos?: MaintenancePhoto[]
+  ): Promise<MaintenancePhoto[] | undefined> => {
+    if (!photos || photos.length === 0) return photos;
+    let listChanged = false;
+    const next = await Promise.all(
+      photos.map(async (p) => {
+        if (!p.dataUrl || !p.dataUrl.startsWith('data:')) {
+          return p;
+        }
+        try {
+          const mediaKey = p.mediaKey || buildPhotoMediaKey(p.id);
+          const { mimeType, sizeBytes } = await saveMediaDataUrl(mediaKey, p.dataUrl);
+          listChanged = true;
+          migratedCount += 1;
+          return {
+            ...p,
+            dataUrl: '',
+            mediaKey,
+            mimeType: p.mimeType || mimeType,
+            sizeBytes: p.sizeBytes ?? sizeBytes,
+          };
+        } catch {
+          return p;
+        }
+      })
+    );
+    return listChanged ? next : photos;
+  };
+
+  const migrateInvoices = async (
+    invoices?: ServiceInvoiceDocument[]
+  ): Promise<ServiceInvoiceDocument[] | undefined> => {
+    if (!invoices || invoices.length === 0) return invoices;
+    let listChanged = false;
+    const next = await Promise.all(
+      invoices.map(async (inv) => {
+        if (!inv.dataUrl || !inv.dataUrl.startsWith('data:')) {
+          return inv;
+        }
+        try {
+          const mediaKey = inv.mediaKey || buildPdfMediaKey('invoice', inv.id);
+          await saveMediaDataUrl(mediaKey, inv.dataUrl, inv.fileName);
+          listChanged = true;
+          migratedCount += 1;
+          const { dataUrl: _removed, ...rest } = inv;
+          return { ...rest, mediaKey };
+        } catch {
+          return inv;
+        }
+      })
+    );
+    return listChanged ? next : invoices;
+  };
+
+  const parts = await Promise.all(
+    (db.parts || []).map(async (p) => ({
+      ...p,
+      photos: await migratePhotos(p.photos),
+    }))
+  );
+  const schedules = await Promise.all(
+    (db.schedules || []).map(async (s) => ({
+      ...s,
+      photos: await migratePhotos(s.photos),
+    }))
+  );
+  const serviceLogs = await Promise.all(
+    (db.serviceLogs || []).map(async (l) => ({
+      ...l,
+      photos: await migratePhotos(l.photos),
+      invoices: await migrateInvoices(l.invoices),
+    }))
+  );
+  const sailTrips = await Promise.all(
+    (db.sailTrips || []).map(async (t) => ({
+      ...t,
+      photos: await migratePhotos(t.photos),
+      legs: await Promise.all(
+        (t.legs || []).map(async (leg) => ({
+          ...leg,
+          photos: await migratePhotos(leg.photos),
+        }))
+      ),
+    }))
+  );
+  const manuals = await Promise.all(
+    (db.manuals || []).map(async (m) => {
+      if (!m.pdfDataUrl || !m.pdfDataUrl.startsWith('data:')) {
+        return m;
+      }
+      try {
+        const mediaKey = m.mediaKey || buildPdfMediaKey('manual', m.id);
+        await saveMediaDataUrl(mediaKey, m.pdfDataUrl, m.fileName);
+        migratedCount += 1;
+        const { pdfDataUrl: _removed, ...rest } = m;
+        return { ...rest, mediaKey, hasLocalPdf: true };
+      } catch {
+        return m;
+      }
+    })
+  );
+
+  if (migratedCount === 0) {
+    return { updatedDb: db, migratedCount: 0 };
+  }
+
+  return {
+    migratedCount,
+    updatedDb: {
+      ...db,
+      parts,
+      schedules,
+      serviceLogs,
+      sailTrips,
+      manuals,
+    },
+  };
+}
+
+/**
+ * Hydrates all binary photos, invoices, and manual PDFs from the device's media store
+ * into a self-contained portable JSON snapshot specifically for manual Backup / Google Drive exports.
+ */
+export async function buildPortableBackupDatabase(
+  db: CaptainsDatabase
+): Promise<CaptainsDatabase> {
+  const exportPhotos = async (
+    photos?: MaintenancePhoto[]
+  ): Promise<MaintenancePhoto[] | undefined> => {
+    if (!photos || photos.length === 0) return photos;
+    return Promise.all(
+      photos.map(async (p) => {
+        if (p.dataUrl && p.dataUrl.startsWith('data:')) return p;
+        const mediaKey = p.mediaKey || buildPhotoMediaKey(p.id, p.mimeType);
+        const blob = await getMediaBlob(mediaKey);
+        if (!blob) return p;
+        try {
+          const dataUrl = await blobToDataUrl(blob);
+          return { ...p, dataUrl };
+        } catch {
+          return p;
+        }
+      })
+    );
+  };
+
+  const parts = await Promise.all(
+    (db.parts || []).map(async (p) => ({
+      ...p,
+      photos: await exportPhotos(p.photos),
+    }))
+  );
+  const schedules = await Promise.all(
+    (db.schedules || []).map(async (s) => ({
+      ...s,
+      photos: await exportPhotos(s.photos),
+    }))
+  );
+  const serviceLogs = await Promise.all(
+    (db.serviceLogs || []).map(async (l) => ({
+      ...l,
+      photos: await exportPhotos(l.photos),
+      invoices: l.invoices
+        ? await Promise.all(
+            l.invoices.map(async (inv) => {
+              if (inv.dataUrl && inv.dataUrl.startsWith('data:')) return inv;
+              const mediaKey = inv.mediaKey || buildPdfMediaKey('invoice', inv.id);
+              const blob = await getMediaBlob(mediaKey);
+              if (!blob) return inv;
+              try {
+                const dataUrl = await blobToDataUrl(blob);
+                return { ...inv, dataUrl };
+              } catch {
+                return inv;
+              }
+            })
+          )
+        : undefined,
+    }))
+  );
+  const sailTrips = await Promise.all(
+    (db.sailTrips || []).map(async (t) => ({
+      ...t,
+      photos: await exportPhotos(t.photos),
+      legs: await Promise.all(
+        (t.legs || []).map(async (leg) => ({
+          ...leg,
+          photos: await exportPhotos(leg.photos),
+        }))
+      ),
+    }))
+  );
+  const manuals = await Promise.all(
+    (db.manuals || []).map(async (m) => {
+      if (!m.hasLocalPdf && !m.mediaKey) return m;
+      const mediaKey = m.mediaKey || buildPdfMediaKey('manual', m.id);
+      const blob = await getMediaBlob(mediaKey);
+      if (!blob) return m;
+      try {
+        const pdfDataUrl = await blobToDataUrl(blob);
+        return { ...m, pdfDataUrl };
+      } catch {
+        return m;
+      }
+    })
+  );
+
+  return {
+    ...db,
+    parts,
+    schedules,
+    serviceLogs,
+    sailTrips,
+    manuals,
   };
 }
 
@@ -1248,8 +1584,9 @@ export function saveDatabase(db: CaptainsDatabase, preserveTimestamp = false): v
     exportedAt: preserveTimestamp && db.exportedAt ? db.exportedAt : new Date().toISOString(),
   };
 
-  // 1. Always persist complete database (with all photos and data) in IndexedDB
+  // 1. Always persist complete database in IndexedDB and native app Directory.Data (on Capacitor)
   saveToIndexedDB(updated);
+  saveToNativeFilesystem(updated);
 
   // 2. Persist in localStorage for instant synchronous offline startup
   try {

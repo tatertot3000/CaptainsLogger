@@ -101,9 +101,13 @@ export interface LinkedPartRequirement {
 
 export interface MaintenancePhoto {
   id: string;
-  dataUrl: string; // Compressed JPEG/WebP Data URL
+  dataUrl: string; // Compressed JPEG/WebP Data URL (legacy/fallback) or empty when cached in binary store
   caption?: string;
   addedAt: string; // YYYY-MM-DD
+  mediaKey?: string; // Binary key in local media store (IndexedDB / Capacitor Filesystem)
+  mimeType?: string;
+  sizeBytes?: number;
+  remotePath?: string; // Object path in Supabase Storage once uploaded
 }
 
 export interface MaintenanceSchedule {
@@ -130,6 +134,9 @@ export interface VesselManual {
   fileName?: string;
   fileSizeBytes?: number;
   hasLocalPdf?: boolean;
+  mediaKey?: string;
+  remotePath?: string;
+  pdfDataUrl?: string; // Portable export/import fallback only (extracted to binary store on import)
   externalUrl?: string;
   pageHints?: string; // e.g., "Impeller p. 42 • Oil & Filter p. 28 • Torque Specs p. 88"
   notes?: string;
@@ -144,7 +151,9 @@ export interface ServiceInvoiceDocument {
   fileSizeBytes?: number;
   addedAt: string; // YYYY-MM-DD
   notes?: string;
-  dataUrl?: string; // Optional embedded data URL for portable export/sync
+  dataUrl?: string; // Optional embedded data URL for small files / legacy fallback
+  mediaKey?: string;
+  remotePath?: string;
 }
 
 export interface ServiceLogEntry {

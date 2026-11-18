@@ -11,10 +11,13 @@ import {
   Share2,
 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
+import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { getMediaBlob, getMediaDisplayUrl } from '../db/mediaStorage';
 
 export interface PhotoLightboxModalProps {
   imageUrl: string;
+  mediaKey?: string;
   title?: string;
   caption?: string;
   dateAdded?: string;
@@ -25,6 +28,7 @@ export interface PhotoLightboxModalProps {
 
 export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
   imageUrl,
+  mediaKey,
   title,
   caption,
   dateAdded,
@@ -32,6 +36,19 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
   onDelete,
   downloadFilename,
 }) => {
+  const [resolvedUrl, setResolvedUrl] = useState<string>(() => imageUrl || '');
+
+  useEffect(() => {
+    let active = true;
+    void getMediaDisplayUrl(mediaKey, imageUrl).then((url) => {
+      if (active && url) {
+        setResolvedUrl(url);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [mediaKey, imageUrl]);
   const [scale, setScale] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -180,6 +197,7 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
 
   // Download / Save photo handler
   const handleDownload = async () => {
+    const activeUrl = resolvedUrl || imageUrl;
     try {
       setIsDownloading(true);
 
@@ -190,33 +208,60 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
       const datePart = dateAdded ? `-${dateAdded}` : '';
       const finalFilename = downloadFilename || `captains-logger-${cleanTitle}${datePart}.jpg`;
 
-      // On native mobile APK, support native Share sheet so user can save directly to device photo gallery
+      const getBlob = async (): Promise<Blob | null> => {
+        if (mediaKey) {
+          const b = await getMediaBlob(mediaKey);
+          if (b) return b;
+        }
+        if (activeUrl) {
+          const response = await fetch(activeUrl);
+          return response.blob();
+        }
+        return null;
+      };
+
+      // On native mobile APK, write to Cache and invoke native Share sheet
       if (Capacitor.isNativePlatform()) {
         try {
-          await Share.share({
-            title: title || 'Captain\'s Logger Photo',
-            text: caption || 'Saved from Captain\'s Logger',
-            url: imageUrl,
-            dialogTitle: 'Save or Share Photo',
-          });
-          setIsDownloading(false);
-          return;
+          const blob = await getBlob();
+          if (blob) {
+            const buffer = await blob.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            const chunkSize = 0x8000;
+            for (let i = 0; i < bytes.length; i += chunkSize) {
+              binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+            }
+            const written = await Filesystem.writeFile({
+              path: finalFilename,
+              data: btoa(binary),
+              directory: Directory.Cache,
+            });
+            await Share.share({
+              title: title || "Captain's Logger Photo",
+              text: caption || "Saved from Captain's Logger",
+              files: [written.uri],
+              dialogTitle: 'Save or Share Photo',
+            });
+            setIsDownloading(false);
+            return;
+          }
         } catch {
           // fallback to web download if user cancelled share or share failed
         }
       }
 
       // Web / standard download
-      if (imageUrl.startsWith('data:')) {
+      if (activeUrl.startsWith('data:')) {
         const link = document.createElement('a');
-        link.href = imageUrl;
+        link.href = activeUrl;
         link.download = finalFilename;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
       } else {
-        const response = await fetch(imageUrl);
-        const blob = await response.blob();
+        const blob = await getBlob();
+        if (!blob) return;
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = blobUrl;
@@ -228,8 +273,9 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
       }
     } catch (err) {
       console.warn('Failed to download photo:', err);
-      // Fallback: direct window open
-      window.open(imageUrl, '_blank');
+      if (activeUrl) {
+        window.open(activeUrl, '_blank');
+      }
     } finally {
       setIsDownloading(false);
     }
@@ -373,7 +419,7 @@ export const PhotoLightboxModal: React.FC<PhotoLightboxModalProps> = ({
           onDoubleClick={handleDoubleClick}
         >
           <img
-            src={imageUrl}
+            src={resolvedUrl || imageUrl}
             alt={caption || title || 'Photo'}
             draggable={false}
             className="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl transition-transform duration-100 will-change-transform"

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   BookOpen,
@@ -23,6 +23,7 @@ import {
   isInitialSampleDatabase,
   loadDatabase,
   loadDatabaseFromIndexedDB,
+  migrateDatabaseMediaToBinaryStore,
   restorePhotosFromSource,
   saveDatabase,
 } from './db/storage';
@@ -34,6 +35,7 @@ import {
   pushToSupabaseCloud,
   saveSupabaseConfig,
   SupabaseSyncConfig,
+  syncMediaWithSupabaseStorage,
   SyncStatusReport,
   vesselNameToBoatSyncId,
 } from './db/supabaseSync';
@@ -61,6 +63,11 @@ export const App: React.FC = () => {
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseSyncConfig>(() =>
     loadSupabaseConfig()
   );
+  const dbRef = useRef(db);
+  dbRef.current = db;
+  const supabaseConfigRef = useRef(supabaseConfig);
+  supabaseConfigRef.current = supabaseConfig;
+
   const [syncReport, setSyncReport] = useState<SyncStatusReport>(() => ({
     diskStatus: 'syncing',
     cloudStatus: loadSupabaseConfig().enabled ? 'syncing' : 'unconfigured',
@@ -77,6 +84,9 @@ export const App: React.FC = () => {
       let workingDb = currentDb;
       let activeSbConfig = currentSbConfig;
       let updatedFromRemote = false;
+      let diskTime = 0;
+      let cloudTime = 0;
+      let diskAvailable = false;
 
       setSyncReport((prev) => ({
         ...prev,
@@ -88,7 +98,8 @@ export const App: React.FC = () => {
       if (direction === 'auto' || direction === 'pull') {
         const diskRes = await pullFromLocalDiskFile();
         if (diskRes.exists && diskRes.data && diskRes.data.vessel) {
-          const diskTime = new Date(diskRes.data.exportedAt || 0).getTime();
+          diskAvailable = true;
+          diskTime = new Date(diskRes.data.exportedAt || 0).getTime();
           const localTime = new Date(workingDb.exportedAt || 0).getTime();
           const diskIsSample = isInitialSampleDatabase(diskRes.data);
           const localIsSample = isInitialSampleDatabase(workingDb);
@@ -111,7 +122,7 @@ export const App: React.FC = () => {
       if (activeSbConfig.enabled && (direction === 'auto' || direction === 'pull')) {
         const cloudRes = await pullFromSupabaseCloud(activeSbConfig);
         if (cloudRes.ok && cloudRes.data && cloudRes.data.vessel) {
-          const cloudTime = new Date(cloudRes.data.exportedAt || 0).getTime();
+          cloudTime = new Date(cloudRes.data.exportedAt || 0).getTime();
           const localTime = new Date(workingDb.exportedAt || 0).getTime();
           const cloudIsSample = isInitialSampleDatabase(cloudRes.data);
           const localIsSample = isInitialSampleDatabase(workingDb);
@@ -141,30 +152,65 @@ export const App: React.FC = () => {
         }
       }
 
+      let persistedDb = workingDb;
       if (updatedFromRemote) {
-        saveDatabase(workingDb, true);
-        setDb(workingDb);
+        const { updatedDb } = await migrateDatabaseMediaToBinaryStore(workingDb);
+        persistedDb = updatedDb;
+        saveDatabase(persistedDb, true);
+        setDb(persistedDb);
       }
 
-      // Prevent an unedited fresh-install sample database from overwriting real data on disk or Supabase during auto-sync
-      const allowPush = direction === 'push' || !isInitialSampleDatabase(workingDb);
+      // 2b. Sync binary media (photos & PDFs) with Supabase Storage bucket (`captains-media`).
+      // Only uploads new files without `remotePath` and only downloads files missing locally.
+      let mediaWarning: string | undefined;
+      let mediaMetadataUpdated = false;
+      if (activeSbConfig.enabled) {
+        const mediaSync = await syncMediaWithSupabaseStorage(
+          persistedDb,
+          activeSbConfig,
+          direction
+        );
+        mediaWarning = mediaSync.warning;
+        if (mediaSync.metadataUpdated) {
+          persistedDb = mediaSync.updatedDb;
+          mediaMetadataUpdated = true;
+          saveDatabase(persistedDb, true);
+          setDb(persistedDb);
+        }
+      }
 
-      // 3. Push latest snapshot to Local Disk File (Option A)
-      const diskPush: { ok: boolean; filePath?: string; savedAt?: string } = allowPush
-        ? await pushToLocalDiskFile(workingDb)
-        : { ok: false };
+      const persistedTime = new Date(persistedDb.exportedAt || 0).getTime();
+      const isRealDb = !isInitialSampleDatabase(persistedDb);
 
-      // 4. Push latest snapshot to Supabase Cloud (Option B)
+      // Push metadata JSON to local PC disk if modified locally or newer than disk
+      const allowDiskPush =
+        direction === 'push' || (isRealDb && (persistedTime > diskTime || !diskAvailable));
+      let diskPush: { ok: boolean; filePath?: string; savedAt?: string } = { ok: false };
+      if (allowDiskPush) {
+        diskPush = await pushToLocalDiskFile(persistedDb);
+      } else if (diskAvailable) {
+        diskPush = { ok: true, savedAt: new Date(diskTime).toISOString() };
+      }
+
+      // 4. Push lightweight metadata snapshot to Supabase Cloud (Option B) when needed
       let cloudStatus: SyncStatusReport['cloudStatus'] = 'unconfigured';
       let cloudLastSynced: string | undefined;
       let cloudError: string | undefined;
 
       if (activeSbConfig.enabled) {
-        if (allowPush) {
-          const cloudPush = await pushToSupabaseCloud(workingDb, activeSbConfig);
+        const allowCloudPush =
+          direction === 'push' ||
+          mediaMetadataUpdated ||
+          (isRealDb && persistedTime > cloudTime);
+
+        if (allowCloudPush) {
+          const cloudPush = await pushToSupabaseCloud(persistedDb, activeSbConfig);
           if (cloudPush.ok) {
             cloudStatus = 'synced';
             cloudLastSynced = cloudPush.syncedAt;
+            if (mediaWarning) {
+              cloudError = `Logbook synced, media bucket warning: ${mediaWarning}`;
+            }
           } else {
             cloudStatus =
               typeof navigator !== 'undefined' && !navigator.onLine
@@ -175,6 +221,9 @@ export const App: React.FC = () => {
         } else {
           cloudStatus = 'synced';
           cloudLastSynced = new Date().toISOString();
+          if (mediaWarning) {
+            cloudError = `Logbook synced, media bucket warning: ${mediaWarning}`;
+          }
         }
       }
 
@@ -201,30 +250,51 @@ export const App: React.FC = () => {
       return;
     }
 
-    // Fast-path: Check IndexedDB immediately to hydrate full-fidelity snapshot & photos
-    void loadDatabaseFromIndexedDB().then((idbDb) => {
-      if (!idbDb) return;
-      setDb((currentDb) => {
+    let cancelled = false;
+
+    const bootHydrateAndSync = async () => {
+      let startingDb = dbRef.current;
+
+      // 1. Hydrate from IndexedDB / native Capacitor Filesystem BEFORE comparing timestamps with server
+      const idbDb = await loadDatabaseFromIndexedDB();
+      if (!cancelled && idbDb) {
         const idbTime = new Date(idbDb.exportedAt || 0).getTime();
-        const currTime = new Date(currentDb.exportedAt || 0).getTime();
+        const currTime = new Date(startingDb.exportedAt || 0).getTime();
         const idbIsSample = isInitialSampleDatabase(idbDb);
-        const currIsSample = isInitialSampleDatabase(currentDb);
-        const currMissingPhotos = hasMissingPhotos(currentDb) && hasPhotos(idbDb);
+        const currIsSample = isInitialSampleDatabase(startingDb);
+        const currMissingPhotos = hasMissingPhotos(startingDb) && hasPhotos(idbDb);
 
         if (!idbIsSample && (currIsSample || idbTime >= currTime || currMissingPhotos)) {
-          return restorePhotosFromSource(idbDb, idbDb);
+          startingDb = restorePhotosFromSource(idbDb, idbDb);
+          setDb(startingDb);
         }
-        return currentDb;
-      });
-    });
+      }
 
-    void syncAllLayers(db, supabaseConfig, 'auto');
+      // 2. Migrate any inline base64 photos/invoices into persistent binary storage locally
+      if (!cancelled) {
+        const { updatedDb, migratedCount } = await migrateDatabaseMediaToBinaryStore(startingDb);
+        if (!cancelled && migratedCount > 0) {
+          startingDb = updatedDb;
+          saveDatabase(startingDb, true);
+          setDb(startingDb);
+        }
+      }
+
+      if (!cancelled) {
+        await syncAllLayers(startingDb, supabaseConfigRef.current, 'auto');
+      }
+    };
+
+    void bootHydrateAndSync();
 
     const handleOnline = () => {
-      void syncAllLayers(db, supabaseConfig, 'auto');
+      void syncAllLayers(dbRef.current, supabaseConfigRef.current, 'auto');
     };
     window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('online', handleOnline);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

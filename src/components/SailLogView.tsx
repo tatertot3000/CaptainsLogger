@@ -54,6 +54,12 @@ import {
 } from '../utils/geo';
 import { LegTrackMap, MapLegData } from './LegTrackMap';
 import { PhotoLightboxModal } from './PhotoLightboxModal';
+import { MediaImage } from './MediaImage';
+import {
+  buildPhotoMediaKey,
+  deleteMediaFile,
+  saveMediaDataUrl,
+} from '../db/mediaStorage';
 import { AnchorWatchModal } from './AnchorWatchModal';
 import { useAnchorWatch } from '../hooks/useAnchorWatch';
 import {
@@ -426,7 +432,7 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   const [legPhotos, setLegPhotos] = useState<MaintenancePhoto[]>([]);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [expandedLegIds, setExpandedLegIds] = useState<Record<string, boolean>>({});
-  const [previewPhotoUrl, setPreviewPhotoUrl] = useState<string | null>(null);
+  const [previewPhoto, setPreviewPhoto] = useState<MaintenancePhoto | null>(null);
   const [markTripCompletedOnSave, setMarkTripCompletedOnSave] = useState(false);
 
   const toggleLegExpanded = (legId: string) => {
@@ -439,31 +445,37 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   const compressSelectedPhotos = async (files: FileList | null): Promise<MaintenancePhoto[]> => {
     if (!files || files.length === 0) return [];
     try {
+      const today = new Date().toISOString().slice(0, 10);
       const fileArray = Array.from(files);
-      const promises = fileArray.map(async (file) => {
+      const promises = fileArray.map(async (file, idx): Promise<MaintenancePhoto | null> => {
         const isImage =
           file.type.startsWith('image/') ||
           /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name);
         if (!isImage) return null;
-        return await compressImageFile(file, 1024, 0.75);
+        const compressedDataUrl = await compressImageFile(file, 1024, 0.75);
+        const id = `sail-photo-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`;
+        const mediaKey = buildPhotoMediaKey(id, 'image/jpeg');
+        const { mimeType, sizeBytes } = await saveMediaDataUrl(
+          mediaKey,
+          compressedDataUrl,
+          file.name
+        );
+        return {
+          id,
+          dataUrl: '',
+          mediaKey,
+          mimeType,
+          sizeBytes,
+          addedAt: today,
+        };
       });
       const settled = await Promise.allSettled(promises);
-      const newUrls: string[] = settled
+      return settled
         .filter(
-          (r): r is PromiseFulfilledResult<string | null> =>
+          (r): r is PromiseFulfilledResult<MaintenancePhoto | null> =>
             r.status === 'fulfilled' && r.value !== null
         )
-        .map((r) => r.value as string);
-
-      if (newUrls.length > 0) {
-        const today = new Date().toISOString().slice(0, 10);
-        return newUrls.map((url, idx) => ({
-          id: `sail-photo-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
-          dataUrl: url,
-          addedAt: today,
-        }));
-      }
-      return [];
+        .map((r) => r.value as MaintenancePhoto);
     } catch (err) {
       console.error('Failed to compress passage photo:', err);
       return [];
@@ -525,6 +537,13 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
   };
 
   const handleDeleteTripPhoto = (tripId: string, photoIdOrIdx: string | number) => {
+    const trip = (db.sailTrips || []).find((t) => t.id === tripId);
+    const removed = (trip?.photos || []).find((p, idx) =>
+      p.id ? p.id === photoIdOrIdx : idx === photoIdOrIdx
+    );
+    if (removed?.mediaKey) {
+      void deleteMediaFile(removed.mediaKey);
+    }
     onUpdateDb((prev) => ({
       ...prev,
       sailTrips: (prev.sailTrips || []).map((t) =>
@@ -1721,11 +1740,12 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                               key={photo.id || pIdx}
                               className="relative group rounded-lg overflow-hidden border border-slate-700 bg-slate-900 w-20 h-20 shrink-0"
                             >
-                              <img
-                                src={photo.dataUrl}
+                              <MediaImage
+                                mediaKey={photo.mediaKey}
+                                fallbackSrc={photo.dataUrl}
                                 alt={photo.caption || `Voyage Photo ${pIdx + 1}`}
                                 className="w-full h-full object-cover cursor-pointer group-hover:scale-105 transition"
-                                onClick={() => setPreviewPhotoUrl(photo.dataUrl)}
+                                onClick={() => setPreviewPhoto(photo)}
                               />
                               {!IS_DEMO_MODE && (
                                 <button
@@ -2108,12 +2128,13 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                                           <button
                                             key={photo.id || pIdx}
                                             type="button"
-                                            onClick={() => setPreviewPhotoUrl(photo.dataUrl)}
+                                            onClick={() => setPreviewPhoto(photo)}
                                             className="relative rounded-lg overflow-hidden border border-slate-700 bg-slate-900 w-16 h-16 shrink-0 group cursor-pointer"
                                             title="Click to enlarge"
                                           >
-                                            <img
-                                              src={photo.dataUrl}
+                                            <MediaImage
+                                              mediaKey={photo.mediaKey}
+                                              fallbackSrc={photo.dataUrl}
                                               alt={photo.caption || `Passage Photo ${pIdx + 1}`}
                                               className="w-full h-full object-cover group-hover:scale-105 transition"
                                             />
@@ -2347,11 +2368,12 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                         key={photo.id || idx}
                         className="relative group rounded-lg overflow-hidden border border-slate-700 bg-slate-900 aspect-square"
                       >
-                        <img
-                          src={photo.dataUrl}
+                        <MediaImage
+                          mediaKey={photo.mediaKey}
+                          fallbackSrc={photo.dataUrl}
                           alt={photo.caption || `Voyage photo ${idx + 1}`}
                           className="w-full h-full object-cover cursor-pointer"
-                          onClick={() => setPreviewPhotoUrl(photo.dataUrl)}
+                          onClick={() => setPreviewPhoto(photo)}
                         />
                         <button
                           type="button"
@@ -2941,11 +2963,12 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
                           key={photo.id || idx}
                           className="relative group rounded-lg overflow-hidden border border-slate-700 bg-slate-900 aspect-square"
                         >
-                          <img
-                            src={photo.dataUrl}
+                          <MediaImage
+                            mediaKey={photo.mediaKey}
+                            fallbackSrc={photo.dataUrl}
                             alt={photo.caption || `Passage photo ${idx + 1}`}
                             className="w-full h-full object-cover cursor-pointer"
-                            onClick={() => setPreviewPhotoUrl(photo.dataUrl)}
+                            onClick={() => setPreviewPhoto(photo)}
                           />
                           <button
                             type="button"
@@ -3036,11 +3059,14 @@ export const SailLogView: React.FC<SailLogViewProps> = ({
       )}
 
       {/* Photo Lightbox Modal with Zoom & Download */}
-      {previewPhotoUrl && (
+      {previewPhoto && (
         <PhotoLightboxModal
-          imageUrl={previewPhotoUrl}
-          title="Passage Journal Photo"
-          onClose={() => setPreviewPhotoUrl(null)}
+          imageUrl={previewPhoto.dataUrl}
+          mediaKey={previewPhoto.mediaKey}
+          title={previewPhoto.caption || 'Passage Journal Photo'}
+          caption={previewPhoto.caption}
+          dateAdded={previewPhoto.addedAt}
+          onClose={() => setPreviewPhoto(null)}
         />
       )}
 

@@ -1,7 +1,15 @@
-import { CaptainsDatabase } from '../types';
+import { CaptainsDatabase, MaintenancePhoto } from '../types';
 import { IS_DEMO_MODE } from '../utils/demoMode';
+import {
+  buildPdfMediaKey,
+  buildPhotoMediaKey,
+  getMediaBlob,
+  hasMediaLocally,
+  saveMediaBlob,
+} from './mediaStorage';
 
 const SUPABASE_CONFIG_KEY = 'captains_logger_supabase_config_v1';
+const MEDIA_BUCKET = 'captains-media';
 
 export interface SupabaseSyncConfig {
   supabaseUrl: string;
@@ -35,7 +43,20 @@ create policy "Allow anon read/write by boat_id"
   for all
   to anon, authenticated
   using (true)
-  with check (true);`;
+  with check (true);
+
+insert into storage.buckets (id, name, public)
+values ('captains-media', 'captains-media', false)
+on conflict (id) do nothing;
+
+drop policy if exists "Allow anon read/write captains-media" on storage.objects;
+
+create policy "Allow anon read/write captains-media"
+  on storage.objects
+  for all
+  to anon, authenticated
+  using (bucket_id = 'captains-media')
+  with check (bucket_id = 'captains-media');`;
 
 export function vesselNameToBoatSyncId(name: string): string {
   const cleaned = (name || '')
@@ -309,5 +330,250 @@ export async function pullFromSupabaseCloud(
       error: `Connection failed (${msg}). Check your Project URL (${url}) and internet connection.`,
     };
   }
+}
+
+function encodeStoragePath(objectPath: string): string {
+  return objectPath
+    .split('/')
+    .map((seg) => encodeURIComponent(seg))
+    .join('/');
+}
+
+async function uploadBlobToSupabaseStorage(
+  objectPath: string,
+  blob: Blob,
+  config: SupabaseSyncConfig
+): Promise<{ ok: boolean; error?: string }> {
+  const url = formatSupabaseUrl(config.supabaseUrl);
+  const endpoint = `${url}/storage/v1/object/${MEDIA_BUCKET}/${encodeStoragePath(objectPath)}`;
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        apikey: config.supabaseAnonKey,
+        Authorization: `Bearer ${config.supabaseAnonKey}`,
+        'Content-Type': blob.type || 'application/octet-stream',
+        'x-upsert': 'true',
+      },
+      body: blob,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return { ok: false, error: `Storage HTTP ${res.status}: ${text.slice(0, 120)}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: (err as Error)?.message || 'Network unreachable' };
+  }
+}
+
+async function downloadBlobFromSupabaseStorage(
+  objectPath: string,
+  config: SupabaseSyncConfig
+): Promise<Blob | null> {
+  const url = formatSupabaseUrl(config.supabaseUrl);
+  const encoded = encodeStoragePath(objectPath);
+  const headers = {
+    apikey: config.supabaseAnonKey,
+    Authorization: `Bearer ${config.supabaseAnonKey}`,
+  };
+
+  for (const endpoint of [
+    `${url}/storage/v1/object/authenticated/${MEDIA_BUCKET}/${encoded}`,
+    `${url}/storage/v1/object/${MEDIA_BUCKET}/${encoded}`,
+  ]) {
+    try {
+      const res = await fetch(endpoint, { method: 'GET', headers });
+      if (res.ok) {
+        return await res.blob();
+      }
+    } catch {
+      // Try next endpoint / ignore transient failure
+    }
+  }
+  return null;
+}
+
+export interface MediaSyncResult {
+  updatedDb: CaptainsDatabase;
+  metadataUpdated: boolean;
+  uploadedCount: number;
+  downloadedCount: number;
+  warning?: string;
+}
+
+/**
+ * Synchronizes binary photos and PDFs (invoices & manuals) with Supabase Storage bucket (`captains-media`).
+ * - Never downloads files that already exist locally (zero startup network reload).
+ * - Only uploads binaries that don't yet have a `remotePath` matching the current vessel's sync ID.
+ */
+export async function syncMediaWithSupabaseStorage(
+  db: CaptainsDatabase,
+  config: SupabaseSyncConfig,
+  direction: 'auto' | 'push' | 'pull' = 'auto'
+): Promise<MediaSyncResult> {
+  if (IS_DEMO_MODE || !config.enabled || !config.supabaseUrl || !config.supabaseAnonKey) {
+    return { updatedDb: db, metadataUpdated: false, uploadedCount: 0, downloadedCount: 0 };
+  }
+
+  const boatId = (config.boatSyncId || 'windward-spirit-main').trim();
+  const boatPrefix = `${boatId}/`;
+  let uploadedCount = 0;
+  let downloadedCount = 0;
+  let metadataUpdated = false;
+  let warning: string | undefined;
+
+  const uploadOrDownload = async (
+    mediaKey: string,
+    remotePath: string | undefined,
+    meta?: { fileName?: string; mimeType?: string }
+  ): Promise<string | undefined> => {
+    const existsLocally = await hasMediaLocally(mediaKey);
+    const hasValidRemote = Boolean(remotePath && remotePath.startsWith(boatPrefix));
+
+    // Upload local binary if missing remotePath (or on explicit push without matching boat prefix)
+    if ((direction === 'auto' || direction === 'push') && existsLocally && !hasValidRemote) {
+      const blob = await getMediaBlob(mediaKey);
+      if (blob) {
+        const targetPath = `${boatPrefix}${mediaKey}`;
+        const up = await uploadBlobToSupabaseStorage(targetPath, blob, config);
+        if (up.ok) {
+          uploadedCount += 1;
+          metadataUpdated = true;
+          return targetPath;
+        }
+        warning = up.error;
+      }
+    }
+
+    // Download only if missing on this device (fresh install / new phone / restored metadata)
+    if ((direction === 'auto' || direction === 'pull') && !existsLocally) {
+      const sourcePath = remotePath || (direction === 'pull' ? `${boatPrefix}${mediaKey}` : undefined);
+      if (sourcePath) {
+        const blob = await downloadBlobFromSupabaseStorage(sourcePath, config);
+        if (blob && blob.size > 0) {
+          await saveMediaBlob(mediaKey, blob, meta);
+          downloadedCount += 1;
+        }
+      }
+    }
+
+    return remotePath;
+  };
+
+  const syncPhotos = async (
+    photos?: MaintenancePhoto[]
+  ): Promise<MaintenancePhoto[] | undefined> => {
+    if (!photos || photos.length === 0) return photos;
+    let changed = false;
+    const next = await Promise.all(
+      photos.map(async (p) => {
+        if (!p.mediaKey && !p.remotePath) return p;
+        const mediaKey = p.mediaKey || buildPhotoMediaKey(p.id, p.mimeType);
+        const nextRemote = await uploadOrDownload(mediaKey, p.remotePath, {
+          mimeType: p.mimeType || 'image/jpeg',
+        });
+        if (nextRemote !== p.remotePath || mediaKey !== p.mediaKey) {
+          changed = true;
+          return { ...p, mediaKey, remotePath: nextRemote };
+        }
+        return p;
+      })
+    );
+    return changed ? next : photos;
+  };
+
+  const parts = await Promise.all(
+    (db.parts || []).map(async (p) => ({
+      ...p,
+      photos: await syncPhotos(p.photos),
+    }))
+  );
+
+  const schedules = await Promise.all(
+    (db.schedules || []).map(async (s) => ({
+      ...s,
+      photos: await syncPhotos(s.photos),
+    }))
+  );
+
+  const serviceLogs = await Promise.all(
+    (db.serviceLogs || []).map(async (l) => {
+      const nextPhotos = await syncPhotos(l.photos);
+      const nextInvoices = l.invoices
+        ? await Promise.all(
+            l.invoices.map(async (inv) => {
+              const mediaKey = inv.mediaKey || buildPdfMediaKey('invoice', inv.id);
+              const nextRemote = await uploadOrDownload(mediaKey, inv.remotePath, {
+                fileName: inv.fileName,
+                mimeType: 'application/pdf',
+              });
+              if (nextRemote !== inv.remotePath || mediaKey !== inv.mediaKey) {
+                return { ...inv, mediaKey, remotePath: nextRemote };
+              }
+              return inv;
+            })
+          )
+        : undefined;
+      return { ...l, photos: nextPhotos, invoices: nextInvoices };
+    })
+  );
+
+  const sailTrips = await Promise.all(
+    (db.sailTrips || []).map(async (t) => ({
+      ...t,
+      photos: await syncPhotos(t.photos),
+      legs: await Promise.all(
+        (t.legs || []).map(async (leg) => ({
+          ...leg,
+          photos: await syncPhotos(leg.photos),
+        }))
+      ),
+    }))
+  );
+
+  const manuals = await Promise.all(
+    (db.manuals || []).map(async (m) => {
+      if (!m.hasLocalPdf && !m.mediaKey && !m.remotePath) return m;
+      const mediaKey = m.mediaKey || buildPdfMediaKey('manual', m.id);
+      const nextRemote = await uploadOrDownload(mediaKey, m.remotePath, {
+        fileName: m.fileName,
+        mimeType: 'application/pdf',
+      });
+      const localAfter = await hasMediaLocally(mediaKey);
+      if (
+        nextRemote !== m.remotePath ||
+        mediaKey !== m.mediaKey ||
+        localAfter !== Boolean(m.hasLocalPdf)
+      ) {
+        return {
+          ...m,
+          mediaKey,
+          remotePath: nextRemote,
+          hasLocalPdf: localAfter || m.hasLocalPdf,
+        };
+      }
+      return m;
+    })
+  );
+
+  if (!metadataUpdated && downloadedCount === 0) {
+    return { updatedDb: db, metadataUpdated: false, uploadedCount, downloadedCount, warning };
+  }
+
+  return {
+    updatedDb: {
+      ...db,
+      parts,
+      schedules,
+      serviceLogs,
+      sailTrips,
+      manuals,
+    },
+    metadataUpdated,
+    uploadedCount,
+    downloadedCount,
+    warning,
+  };
 }
 

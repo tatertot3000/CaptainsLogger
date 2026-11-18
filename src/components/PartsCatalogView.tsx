@@ -41,6 +41,7 @@ import {
 import { getConsumableTotals, getVendorSearchLinks } from '../utils/vendors';
 import { ManualsLibrarySection } from './ManualsLibrarySection';
 import { PhotoLightboxModal } from './PhotoLightboxModal';
+import { MediaImage } from './MediaImage';
 import { findMatchingManual, openOrShareManualPdf } from '../db/pdfStorage';
 
 interface PartsCatalogViewProps {
@@ -1986,8 +1987,9 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                         className="group relative rounded-lg overflow-hidden border border-slate-700 hover:border-sky-400 transition bg-slate-950 text-left max-w-[180px] cursor-pointer"
                         title="Click to enlarge photo"
                       >
-                        <img
-                          src={photo.dataUrl}
+                        <MediaImage
+                          mediaKey={photo.mediaKey}
+                          fallbackSrc={photo.dataUrl}
                           alt={photo.caption || part.name}
                           className="h-24 w-36 object-cover group-hover:scale-105 transition duration-200"
                         />
@@ -2789,6 +2791,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
       {lightboxPhoto && (
         <PhotoLightboxModal
           imageUrl={lightboxPhoto.dataUrl}
+          mediaKey={lightboxPhoto.mediaKey}
           title={lightboxPhoto.caption || 'Part Reference Photo'}
           caption={lightboxPhoto.caption}
           dateAdded={lightboxPhoto.addedAt}

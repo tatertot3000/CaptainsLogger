@@ -49,6 +49,12 @@ import {
   SystemCategory,
 } from '../types';
 import { PhotoLightboxModal } from './PhotoLightboxModal';
+import { MediaImage } from './MediaImage';
+import {
+  buildPhotoMediaKey,
+  deleteMediaFile,
+  saveMediaDataUrl,
+} from '../db/mediaStorage';
 import {
   compressImageFile,
   deductFromPartInventory,
@@ -270,7 +276,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const id = 'inv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
-        await saveInvoicePdfFile(id, file);
+        const mediaKey = await saveInvoicePdfFile(id, file);
 
         let dataUrl: string | undefined;
         // Only embed dataUrl directly in JSON metadata for tiny receipts (<= 64KB).
@@ -289,6 +295,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
           fileSizeBytes: file.size,
           addedAt: today,
           dataUrl,
+          mediaKey,
         });
       }
       setter((prev) => [...prev, ...docs]);
@@ -636,6 +643,13 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
           void deleteInvoicePdfFile(inv.id);
         }
       }
+      if (logToDelete?.photos) {
+        for (const photo of logToDelete.photos) {
+          if (photo.mediaKey) {
+            void deleteMediaFile(photo.mediaKey);
+          }
+        }
+      }
       let updatedSchedules = prev.schedules;
       if (logToDelete?.scheduleId && (logToDelete.status || 'completed') === 'completed') {
         const remainingLogs = prev.serviceLogs.filter(
@@ -813,15 +827,25 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
       const today = new Date().toISOString().slice(0, 10);
       const fileArray = Array.from(files);
       const results = await Promise.allSettled(
-        fileArray.map(async (file, index) => {
+        fileArray.map(async (file, index): Promise<MaintenancePhoto | null> => {
           const isImage =
             file.type.startsWith('image/') ||
             /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name);
           if (!isImage) return null;
-          const dataUrl = await compressImageFile(file, 1024, 0.75);
+          const compressedDataUrl = await compressImageFile(file, 1024, 0.75);
+          const id = `photo-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`;
+          const mediaKey = buildPhotoMediaKey(id, 'image/jpeg');
+          const { mimeType, sizeBytes } = await saveMediaDataUrl(
+            mediaKey,
+            compressedDataUrl,
+            file.name
+          );
           return {
-            id: `photo-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`,
-            dataUrl,
+            id,
+            dataUrl: '',
+            mediaKey,
+            mimeType,
+            sizeBytes,
             addedAt: today,
           };
         })
@@ -856,6 +880,11 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
   };
 
   const handleDeletePhotoFromSchedule = (scheduleId: string, photoId: string) => {
+    const targetSched = db.schedules.find((s) => s.id === scheduleId);
+    const targetPhoto = targetSched?.photos?.find((p) => p.id === photoId);
+    if (targetPhoto?.mediaKey) {
+      void deleteMediaFile(targetPhoto.mediaKey);
+    }
     onUpdateDb((prev) => ({
       ...prev,
       schedules: prev.schedules.map((s) =>
@@ -888,7 +917,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const id = 'inv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
-        await saveInvoicePdfFile(id, file);
+        const mediaKey = await saveInvoicePdfFile(id, file);
 
         let dataUrl: string | undefined;
         // Only embed dataUrl directly in JSON metadata for tiny receipts (<= 64KB).
@@ -907,6 +936,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
           fileSizeBytes: file.size,
           addedAt: today,
           dataUrl,
+          mediaKey,
         });
       }
 
@@ -926,6 +956,11 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
   };
 
   const handleDeletePhotoFromLog = (logId: string, photoId: string) => {
+    const targetLog = db.serviceLogs.find((l) => l.id === logId);
+    const targetPhoto = targetLog?.photos?.find((p) => p.id === photoId);
+    if (targetPhoto?.mediaKey) {
+      void deleteMediaFile(targetPhoto.mediaKey);
+    }
     onUpdateDb((prev) => ({
       ...prev,
       serviceLogs: prev.serviceLogs.map((l) =>
@@ -1841,8 +1876,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                             className="block w-full h-20 overflow-hidden relative"
                             title={photo.caption || 'Click to view full size'}
                           >
-                            <img
-                              src={photo.dataUrl}
+                            <MediaImage
+                              mediaKey={photo.mediaKey}
+                              fallbackSrc={photo.dataUrl}
                               alt={photo.caption || schedule.title}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                             />
@@ -2432,8 +2468,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                               className="block w-full h-20 overflow-hidden relative"
                               title={photo.caption || 'Click to view full size'}
                             >
-                              <img
-                                src={photo.dataUrl}
+                              <MediaImage
+                                mediaKey={photo.mediaKey}
+                                fallbackSrc={photo.dataUrl}
                                 alt={photo.caption || log.title}
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                               />
@@ -2880,8 +2917,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                         key={photo.id}
                         className="flex items-center gap-2.5 bg-slate-900 border border-slate-800 rounded-lg p-2"
                       >
-                        <img
-                          src={photo.dataUrl}
+                        <MediaImage
+                          mediaKey={photo.mediaKey}
+                          fallbackSrc={photo.dataUrl}
                           alt={photo.caption || 'Service photo'}
                           className="w-12 h-12 rounded object-cover shrink-0 border border-slate-700"
                         />
@@ -3382,8 +3420,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                         key={photo.id}
                         className="flex items-center gap-2.5 bg-slate-900 border border-slate-800 rounded-lg p-2"
                       >
-                        <img
-                          src={photo.dataUrl}
+                        <MediaImage
+                          mediaKey={photo.mediaKey}
+                          fallbackSrc={photo.dataUrl}
                           alt={photo.caption || 'Service photo'}
                           className="w-12 h-12 rounded object-cover shrink-0 border border-slate-700"
                         />
@@ -3891,8 +3930,9 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                         key={photo.id}
                         className="flex items-center gap-2.5 bg-slate-900 border border-slate-800 rounded-lg p-2"
                       >
-                        <img
-                          src={photo.dataUrl}
+                        <MediaImage
+                          mediaKey={photo.mediaKey}
+                          fallbackSrc={photo.dataUrl}
                           alt={photo.caption || 'Task reference photo'}
                           className="w-12 h-12 rounded object-cover shrink-0 border border-slate-700"
                         />
@@ -4115,6 +4155,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
       {lightboxPhoto && (
         <PhotoLightboxModal
           imageUrl={lightboxPhoto.photo.dataUrl}
+          mediaKey={lightboxPhoto.photo.mediaKey}
           title={lightboxPhoto.contextTitle}
           caption={lightboxPhoto.photo.caption}
           dateAdded={lightboxPhoto.photo.addedAt}

@@ -131,9 +131,10 @@ export const ManualsLibrarySection: React.FC<ManualsLibrarySectionProps> = ({
       let fileName = editingManual?.fileName;
       let fileSizeBytes = editingManual?.fileSizeBytes;
       let hasLocalPdf = editingManual?.hasLocalPdf || offlineStatusById[manualId] || false;
+      let mediaKey = editingManual?.mediaKey;
 
       if (selectedPdfFile) {
-        await saveManualPdfFile(manualId, selectedPdfFile);
+        mediaKey = await saveManualPdfFile(manualId, selectedPdfFile);
         fileName = selectedPdfFile.name;
         fileSizeBytes = selectedPdfFile.size;
         hasLocalPdf = true;
@@ -147,6 +148,7 @@ export const ManualsLibrarySection: React.FC<ManualsLibrarySectionProps> = ({
         fileName,
         fileSizeBytes,
         hasLocalPdf,
+        mediaKey,
         externalUrl: externalUrl.trim() || undefined,
         pageHints: pageHints.trim() || undefined,
         notes: notes.trim() || undefined,
@@ -173,7 +175,7 @@ export const ManualsLibrarySection: React.FC<ManualsLibrarySectionProps> = ({
 
   const handleQuickAttachPdf = async (manual: VesselManual, file: File | undefined) => {
     if (!file) return;
-    await saveManualPdfFile(manual.id, file);
+    const mediaKey = await saveManualPdfFile(manual.id, file);
     onUpdateDb((prev) => ({
       ...prev,
       manuals: (prev.manuals || []).map((m) =>
@@ -183,6 +185,7 @@ export const ManualsLibrarySection: React.FC<ManualsLibrarySectionProps> = ({
               fileName: file.name,
               fileSizeBytes: file.size,
               hasLocalPdf: true,
+              mediaKey,
             }
           : m
       ),
