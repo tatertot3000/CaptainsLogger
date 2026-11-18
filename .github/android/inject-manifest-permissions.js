@@ -63,23 +63,68 @@ if (fs.existsSync(stringsPath)) {
   }
 }
 
-// Inject Native CPU WakeLock into MainActivity.java to keep WebView JS engine alive when screen is locked
+// Inject Native CPU WakeLock + NativePdfViewerPlugin into MainActivity.java
 const mainActivityPath = path.resolve(__dirname, '../../android/app/src/main/java/com/captainslogger/app/MainActivity.java');
 if (fs.existsSync(mainActivityPath)) {
   const mainActivityJava = `package com.captainslogger.app;
 
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.view.View;
 import android.webkit.WebView;
+import androidx.core.content.FileProvider;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+import java.io.File;
 
 public class MainActivity extends BridgeActivity {
     private PowerManager.WakeLock cpuWakeLock;
 
+    @CapacitorPlugin(name = "NativePdfViewer")
+    public static class NativePdfViewerPlugin extends Plugin {
+        @PluginMethod
+        public void openPdf(PluginCall call) {
+            String fileUriStr = call.getString("fileUri");
+            if (fileUriStr == null || fileUriStr.isEmpty()) {
+                call.reject("Missing fileUri");
+                return;
+            }
+            try {
+                Uri rawUri = Uri.parse(fileUriStr);
+                String path = rawUri.getPath();
+                if (path == null || path.isEmpty()) {
+                    call.reject("Invalid file path");
+                    return;
+                }
+                File file = new File(path);
+                Uri contentUri = FileProvider.getUriForFile(
+                    getContext(),
+                    getContext().getPackageName() + ".fileprovider",
+                    file
+                );
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setDataAndType(contentUri, "application/pdf");
+                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                getActivity().startActivity(intent);
+                call.resolve();
+            } catch (ActivityNotFoundException e) {
+                call.reject("No PDF viewer app installed on this device", e);
+            } catch (Exception e) {
+                call.reject("Failed to open PDF: " + e.getMessage(), e);
+            }
+        }
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(NativePdfViewerPlugin.class);
         super.onCreate(savedInstanceState);
 
         try {
@@ -141,7 +186,7 @@ public class MainActivity extends BridgeActivity {
 }
 `;
   fs.writeFileSync(mainActivityPath, mainActivityJava, 'utf8');
-  console.log('Successfully injected Native CPU WakeLock and WebView timer keep-alive into MainActivity.java');
+  console.log('Successfully injected NativePdfViewerPlugin, CPU WakeLock, and WebView timer keep-alive into MainActivity.java');
 }
 
 // Patch BackgroundGeolocationService.java for Android 14+ (FOREGROUND_SERVICE_TYPE_LOCATION) and WakeLock

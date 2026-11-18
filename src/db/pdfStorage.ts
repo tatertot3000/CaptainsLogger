@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { VesselManual } from '../types';
@@ -8,6 +8,12 @@ import {
   getMediaBlob,
   saveMediaBlob,
 } from './mediaStorage';
+
+interface NativePdfViewerPlugin {
+  openPdf(options: { fileUri: string }): Promise<void>;
+}
+
+const NativePdfViewer = registerPlugin<NativePdfViewerPlugin>('NativePdfViewer');
 
 const PDF_IDB_NAME = 'CaptainsLoggerManualsDB';
 const PDF_IDB_STORE = 'pdf_files';
@@ -188,6 +194,60 @@ export async function deleteInvoicePdfFile(invoiceId: string): Promise<void> {
   await deleteLegacyPdf(`invoice_${invoiceId}`, `invoices/${invoiceId}.pdf`);
 }
 
+async function openPdfBlobOnDevice(
+  blob: Blob,
+  safeFilename: string,
+  title: string,
+  dialogTitle: string,
+  pageHint?: string
+): Promise<void> {
+  // Native Android / iOS APK: write PDF to cache and open directly in native PDF viewer (`ACTION_VIEW`)
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const buffer = await blob.arrayBuffer();
+      const base64Data = arrayBufferToBase64(buffer);
+      const written = await Filesystem.writeFile({
+        path: safeFilename,
+        data: base64Data,
+        directory: Directory.Cache,
+      });
+      try {
+        await NativePdfViewer.openPdf({ fileUri: written.uri });
+        return;
+      } catch (viewerErr) {
+        console.warn('NativePdfViewer unavailable, falling back to Share sheet:', viewerErr);
+      }
+      await Share.share({
+        title,
+        files: [written.uri],
+        dialogTitle,
+      });
+      return;
+    } catch (err) {
+      const msg = String((err as Error)?.message || err);
+      if (msg.toLowerCase().includes('cancel') || msg.toLowerCase().includes('dismiss')) {
+        return;
+      }
+      console.warn('Native PDF open failed, falling back to browser viewer:', err);
+    }
+  }
+
+  // Web Browser: open PDF Blob URL in a new tab (with optional #page=N hint)
+  const blobUrl = URL.createObjectURL(blob);
+  const pageMatch = pageHint?.match(/(\d+)/);
+  const finalUrl = pageMatch ? `${blobUrl}#page=${pageMatch[1]}` : blobUrl;
+
+  const newWin = window.open(finalUrl, '_blank');
+  if (!newWin) {
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = safeFilename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+}
+
 export async function openOrShareInvoicePdf(
   invoice: { id: string; fileName: string; dataUrl?: string },
   contextTitle?: string
@@ -203,42 +263,12 @@ export async function openOrShareInvoicePdf(
       ? invoice.fileName
       : `${invoice.fileName.replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`) || 'invoice.pdf';
 
-  // Native Android / iOS APK: write PDF to cache and open native PDF Viewer / Share Sheet
-  if (Capacitor.isNativePlatform()) {
-    try {
-      const buffer = await blob.arrayBuffer();
-      const base64Data = arrayBufferToBase64(buffer);
-      const written = await Filesystem.writeFile({
-        path: safeFilename,
-        data: base64Data,
-        directory: Directory.Cache,
-      });
-      await Share.share({
-        title: contextTitle ? `${contextTitle} - ${invoice.fileName}` : invoice.fileName,
-        files: [written.uri],
-        dialogTitle: contextTitle ? `Open Invoice: ${contextTitle}` : `Open ${invoice.fileName}`,
-      });
-      return;
-    } catch (err) {
-      const msg = String((err as Error)?.message || err);
-      if (msg.toLowerCase().includes('cancel') || msg.toLowerCase().includes('dismiss')) {
-        return;
-      }
-      console.warn('Native PDF open failed, falling back to browser viewer:', err);
-    }
-  }
-
-  // Web Browser: open PDF Blob URL in a new tab
-  const blobUrl = URL.createObjectURL(blob);
-  const newWin = window.open(blobUrl, '_blank');
-  if (!newWin) {
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = safeFilename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
+  await openPdfBlobOnDevice(
+    blob,
+    safeFilename,
+    contextTitle ? `${contextTitle} - ${invoice.fileName}` : invoice.fileName,
+    contextTitle ? `Open Invoice: ${contextTitle}` : `Open ${invoice.fileName}`
+  );
 }
 
 /**
@@ -328,45 +358,13 @@ export async function openOrShareManualPdf(
       ? manual.fileName
       : `${manual.title.replace(/[^a-zA-Z0-9_-]+/g, '-')}.pdf`) || 'manual.pdf';
 
-  // 4. Native Android / iOS APK: write PDF to cache and open native PDF Viewer / Share Sheet
-  if (Capacitor.isNativePlatform()) {
-    try {
-      const buffer = await blob.arrayBuffer();
-      const base64Data = arrayBufferToBase64(buffer);
-      const written = await Filesystem.writeFile({
-        path: safeFilename,
-        data: base64Data,
-        directory: Directory.Cache,
-      });
-      await Share.share({
-        title: pageHint ? `${manual.title} (${pageHint})` : manual.title,
-        files: [written.uri],
-        dialogTitle: pageHint ? `Open ${manual.title} (${pageHint})` : `Open ${manual.title}`,
-      });
-      return;
-    } catch (err) {
-      const msg = String((err as Error)?.message || err);
-      if (msg.toLowerCase().includes('cancel') || msg.toLowerCase().includes('dismiss')) {
-        return;
-      }
-      console.warn('Native PDF open failed, falling back to browser viewer:', err);
-    }
-  }
-
-  // 5. Web Browser: open PDF Blob URL in a new tab (with #page=N if a numeric page was given)
-  const blobUrl = URL.createObjectURL(blob);
-  const pageMatch = pageHint?.match(/(\d+)/);
-  const finalUrl = pageMatch ? `${blobUrl}#page=${pageMatch[1]}` : blobUrl;
-
-  const newWin = window.open(finalUrl, '_blank');
-  if (!newWin) {
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = safeFilename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
+  await openPdfBlobOnDevice(
+    blob,
+    safeFilename,
+    pageHint ? `${manual.title} (${pageHint})` : manual.title,
+    pageHint ? `Open ${manual.title} (${pageHint})` : `Open ${manual.title}`,
+    pageHint
+  );
 }
 
 export function formatFileSize(bytes?: number): string {
