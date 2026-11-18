@@ -3,6 +3,23 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const androidResSrc = path.resolve(__dirname, '../../resources/android');
+const androidResDest = path.resolve(__dirname, '../../android/app/src/main/res');
+
+// Sync custom app icons & adaptive icon background color from resources/android into android/
+if (fs.existsSync(androidResSrc) && fs.existsSync(androidResDest)) {
+  fs.cpSync(androidResSrc, androidResDest, { recursive: true, force: true });
+  for (const unusedDefault of [
+    path.join(androidResDest, 'drawable/ic_launcher_background.xml'),
+    path.join(androidResDest, 'drawable-v24/ic_launcher_foreground.xml'),
+  ]) {
+    if (fs.existsSync(unusedDefault)) {
+      fs.rmSync(unusedDefault, { force: true });
+    }
+  }
+  console.log('Successfully copied custom app icons from resources/android to android/app/src/main/res');
+}
+
 const manifestPath = path.resolve(__dirname, '../../android/app/src/main/AndroidManifest.xml');
 
 if (!fs.existsSync(manifestPath)) {

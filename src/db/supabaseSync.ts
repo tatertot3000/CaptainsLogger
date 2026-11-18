@@ -359,7 +359,15 @@ async function uploadBlobToSupabaseStorage(
     });
     if (!res.ok) {
       const text = await res.text();
-      return { ok: false, error: `Storage HTTP ${res.status}: ${text.slice(0, 120)}` };
+      let hint = '';
+      if (text.toLowerCase().includes('bucket not found') || res.status === 404) {
+        hint =
+          ' → Bucket "captains-media" missing in Supabase! Run the updated Table & Storage SQL once in your Supabase SQL Editor.';
+      } else if (res.status === 401 || res.status === 403 || text.toLowerCase().includes('row-level security')) {
+        hint =
+          ' → Storage RLS policy missing. Run the updated Table & Storage SQL in your Supabase SQL Editor.';
+      }
+      return { ok: false, error: `Storage HTTP ${res.status}: ${text.slice(0, 120)}${hint}` };
     }
     return { ok: true };
   } catch (err) {

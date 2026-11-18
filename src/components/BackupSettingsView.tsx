@@ -740,7 +740,11 @@ export const BackupSettingsView: React.FC<BackupSettingsViewProps> = ({
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                   <div>
-                    <div className="font-bold text-rose-200">Cloud Sync Failed</div>
+                    <div className="font-bold text-rose-200">
+                      {syncReport.cloudStatus === 'synced'
+                        ? 'Media Storage Setup Needed (Logbook Synced)'
+                        : 'Cloud Sync Failed'}
+                    </div>
                     <div className="text-[11px] text-rose-300/90 mt-0.5 font-mono leading-relaxed">{syncReport.cloudError}</div>
                   </div>
                 </div>
