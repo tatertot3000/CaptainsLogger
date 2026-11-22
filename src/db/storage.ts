@@ -909,7 +909,33 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
       changed = true;
     }
 
-    if (!p.itemType || p.category !== newCat || !p.datePurchased || containers !== p.containers) {
+    let newQuantity = p.newQuantity;
+    let usedQuantity = p.usedQuantity;
+    if (!isConsumable && newQuantity === undefined && usedQuantity === undefined) {
+      newQuantity = Math.max(0, p.quantityOnBoard || 0);
+      usedQuantity = 0;
+      changed = true;
+    } else if (!isConsumable) {
+      const safeNew = Math.max(0, newQuantity ?? 0);
+      const safeUsed = Math.max(0, usedQuantity ?? 0);
+      const combined = Number((safeNew + safeUsed).toFixed(2));
+      if (combined !== quantityOnBoard || safeNew !== newQuantity || safeUsed !== usedQuantity) {
+        newQuantity = safeNew;
+        usedQuantity = safeUsed;
+        quantityOnBoard = combined;
+        changed = true;
+      }
+    }
+
+    if (
+      !p.itemType ||
+      p.category !== newCat ||
+      !p.datePurchased ||
+      containers !== p.containers ||
+      newQuantity !== p.newQuantity ||
+      usedQuantity !== p.usedQuantity ||
+      quantityOnBoard !== p.quantityOnBoard
+    ) {
       parts[i] = {
         ...p,
         itemType: p.itemType || 'part',
@@ -918,6 +944,7 @@ export function upgradeDatabaseSchema(db: CaptainsDatabase): CaptainsDatabase {
         datePurchased: p.datePurchased || defaultDate,
         containers,
         quantityOnBoard,
+        ...(isConsumable ? {} : { newQuantity, usedQuantity }),
       };
       changed = true;
     }
@@ -1768,6 +1795,8 @@ export function generatePartsCatalogCsv(db: CaptainsDatabase): string {
     'OEM / Product Number',
     'Cross-Ref / Aftermarket Numbers',
     'Qty Remaining On Board',
+    'New Qty',
+    'Used Qty',
     'Unit',
     'Min Qty Threshold',
     'Container Size',
@@ -1778,23 +1807,31 @@ export function generatePartsCatalogCsv(db: CaptainsDatabase): string {
     'Preferred Vendor URL',
     'Notes',
   ];
-  const rows = db.parts.map((p) => [
-    p.name,
-    p.itemType || 'part',
-    p.category,
-    p.equipmentModel,
-    p.oemPartNumber,
-    p.crossRefNumbers.join(' | '),
-    p.quantityOnBoard,
-    p.unit || 'each',
-    p.minQuantity,
-    p.containerSize ?? '',
-    p.dosageHint ?? '',
-    p.datePurchased ?? '',
-    p.lastPricePaid ?? '',
-    p.locationOnBoat ?? '',
-    p.preferredVendorUrl ?? '',
-    p.notes ?? '',
-  ]);
+  const rows = db.parts.map((p) => {
+    const isConsumable = p.itemType === 'consumable';
+    const hasSplit = !isConsumable && (p.newQuantity !== undefined || p.usedQuantity !== undefined);
+    const newQtyVal = isConsumable ? '' : hasSplit ? p.newQuantity ?? 0 : p.quantityOnBoard;
+    const usedQtyVal = isConsumable ? '' : hasSplit ? p.usedQuantity ?? 0 : 0;
+    return [
+      p.name,
+      p.itemType || 'part',
+      p.category,
+      p.equipmentModel,
+      p.oemPartNumber,
+      p.crossRefNumbers.join(' | '),
+      p.quantityOnBoard,
+      newQtyVal,
+      usedQtyVal,
+      p.unit || 'each',
+      p.minQuantity,
+      p.containerSize ?? '',
+      p.dosageHint ?? '',
+      p.datePurchased ?? '',
+      p.lastPricePaid ?? '',
+      p.locationOnBoat ?? '',
+      p.preferredVendorUrl ?? '',
+      p.notes ?? '',
+    ];
+  });
   return [headers.join(','), ...rows.map((r) => r.map(escapeCsvCell).join(','))].join('\n');
 }

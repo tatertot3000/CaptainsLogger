@@ -357,9 +357,60 @@ export function getConsumableTotals(part: PartItem): {
 }
 
 /**
+ * Computes separate New and Used spare counts for discrete parts,
+ * remaining 100% backward-compatible with legacy records that only define `quantityOnBoard`.
+ */
+export function getPartStockCounts(part: PartItem): {
+  newQty: number;
+  usedQty: number;
+  totalQty: number;
+} {
+  if (part.itemType === 'consumable') {
+    const totals = getConsumableTotals(part);
+    return {
+      newQty: totals.totalRemaining,
+      usedQty: 0,
+      totalQty: totals.totalRemaining,
+    };
+  }
+
+  const hasSplit = part.newQuantity !== undefined || part.usedQuantity !== undefined;
+  const newQty = Math.max(
+    0,
+    Number(((hasSplit ? part.newQuantity : part.quantityOnBoard) ?? 0).toFixed(2))
+  );
+  const usedQty = Math.max(0, Number((part.usedQuantity ?? 0).toFixed(2)));
+  const totalQty = Number((newQty + usedQty).toFixed(2));
+  return { newQty, usedQty, totalQty };
+}
+
+/**
+ * Adjusts either the `new` or `used` count of a discrete spare part and keeps
+ * `quantityOnBoard` synchronized as `newQuantity + usedQuantity`.
+ */
+export function adjustPartStock(
+  part: PartItem,
+  bucket: 'new' | 'used',
+  delta: number
+): PartItem {
+  const { newQty, usedQty } = getPartStockCounts(part);
+  const nextNew =
+    bucket === 'new' ? Math.max(0, Number((newQty + delta).toFixed(2))) : newQty;
+  const nextUsed =
+    bucket === 'used' ? Math.max(0, Number((usedQty + delta).toFixed(2))) : usedQty;
+  return {
+    ...part,
+    newQuantity: nextNew,
+    usedQuantity: nextUsed,
+    quantityOnBoard: Number((nextNew + nextUsed).toFixed(2)),
+  };
+}
+
+/**
  * Deducts `amountToDeduct` from a part or multi-container consumable using FIFO
- * (oldest `datePurchased` container first) and keeps `quantityOnBoard` synchronized
- * as the sum of all container quantities.
+ * (oldest `datePurchased` container first) and keeps `quantityOnBoard` synchronized.
+ * For discrete spare parts with separate new/used counts, deducts from `newQuantity` first,
+ * then `usedQuantity` if needed.
  */
 export function deductFromPartInventory(part: PartItem, amountToDeduct: number): PartItem {
   if (amountToDeduct <= 0) return part;
@@ -389,6 +440,23 @@ export function deductFromPartInventory(part: PartItem, amountToDeduct: number):
       ...part,
       containers: updatedContainers,
       quantityOnBoard: newTotal,
+    };
+  }
+
+  if (part.itemType !== 'consumable') {
+    const { newQty, usedQty } = getPartStockCounts(part);
+    const takeFromNew = Math.min(newQty, amountToDeduct);
+    const leftAfterNew = Number((amountToDeduct - takeFromNew).toFixed(2));
+    const takeFromUsed = Math.min(usedQty, Math.max(0, leftAfterNew));
+
+    const nextNew = Math.max(0, Number((newQty - takeFromNew).toFixed(2)));
+    const nextUsed = Math.max(0, Number((usedQty - takeFromUsed).toFixed(2)));
+
+    return {
+      ...part,
+      newQuantity: nextNew,
+      usedQuantity: nextUsed,
+      quantityOnBoard: Number((nextNew + nextUsed).toFixed(2)),
     };
   }
 

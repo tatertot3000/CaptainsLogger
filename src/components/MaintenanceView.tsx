@@ -60,6 +60,7 @@ import {
   deductFromPartInventory,
   evaluateSchedule,
   EvaluatedSchedule,
+  getPartStockCounts,
   ScheduleStatus,
 } from '../utils/vendors';
 import { IS_DEMO_MODE } from '../utils/demoMode';
@@ -1795,6 +1796,12 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                           const isTracked = part.trackQuantity !== false;
                           const isLow = isTracked && part.quantityOnBoard <= part.minQuantity;
                           const hasEnough = !isTracked || part.quantityOnBoard >= lp.quantityNeeded;
+                          const stockCounts = !isConsumable ? getPartStockCounts(part) : null;
+                          const stockBadgeText = !isTracked
+                            ? 'Catalog ref'
+                            : stockCounts && stockCounts.usedQty > 0
+                              ? `${stockCounts.newQty} new, ${stockCounts.usedQty} used`
+                              : `${part.quantityOnBoard} ${unit} on board`;
 
                           return (
                             <button
@@ -1832,7 +1839,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                                     : 'bg-rose-500/30 text-rose-200'
                                 }`}
                               >
-                                {isTracked ? `${part.quantityOnBoard} ${unit} on board` : 'Catalog ref'}
+                                {stockBadgeText}
                               </span>
                               {isLow && (
                                 <span className="text-[10px] text-rose-400 font-extrabold underline ml-0.5">
@@ -2755,6 +2762,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                       const isTracked = part.trackQuantity !== false;
                       const remaining = Math.max(0, Number((part.quantityOnBoard - usedQty).toFixed(2)));
                       const willBeLow = isTracked && remaining <= part.minQuantity;
+                      const stockCounts = !isConsumable ? getPartStockCounts(part) : null;
 
                       return (
                         <div
@@ -2774,7 +2782,13 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                               <div className="text-[10px] text-slate-400 mt-0.5">
                                 {isTracked ? (
                                   <>
-                                    Stock: <strong className="text-slate-200">{part.quantityOnBoard} {unit}</strong> • After: <strong className={willBeLow ? 'text-rose-400' : 'text-emerald-400'}>{remaining} {unit}</strong>
+                                    Stock:{' '}
+                                    <strong className="text-slate-200">
+                                      {stockCounts && stockCounts.usedQty > 0
+                                        ? `${part.quantityOnBoard} ${unit} (${stockCounts.newQty} new, ${stockCounts.usedQty} used)`
+                                        : `${part.quantityOnBoard} ${unit}`}
+                                    </strong>{' '}
+                                    • After: <strong className={willBeLow ? 'text-rose-400' : 'text-emerald-400'}>{remaining} {unit}</strong>
                                   </>
                                 ) : (
                                   <span className="text-slate-400">Untracked</span>

@@ -81,6 +81,8 @@ export interface PartItem {
   oemPartNumber: string;
   crossRefNumbers: string[];
   quantityOnBoard: number;
+  newQuantity?: number; // Count of brand-new/unopened spares (for discrete parts)
+  usedQuantity?: number; // Count of used/serviceable backup spares (for discrete parts)
   minQuantity: number;
   datePurchased?: string; // YYYY-MM-DD item tag for identifying when the item/bottle was bought
   lastPricePaid?: number;

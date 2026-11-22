@@ -38,7 +38,18 @@ import {
   PartItem,
   SystemCategory,
 } from '../types';
-import { getConsumableTotals, getVendorSearchLinks } from '../utils/vendors';
+import {
+  adjustPartStock,
+  compressImageFile,
+  getConsumableTotals,
+  getPartStockCounts,
+  getVendorSearchLinks,
+} from '../utils/vendors';
+import {
+  buildPhotoMediaKey,
+  deleteMediaFile,
+  saveMediaDataUrl,
+} from '../db/mediaStorage';
 import { ManualsLibrarySection } from './ManualsLibrarySection';
 import { PhotoLightboxModal } from './PhotoLightboxModal';
 import { MediaImage } from './MediaImage';
@@ -167,6 +178,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
   const [oemPartNumber, setOemPartNumber] = useState('');
   const [crossRefsRaw, setCrossRefsRaw] = useState('');
   const [qtyOnBoard, setQtyOnBoard] = useState('1');
+  const [newQtyInput, setNewQtyInput] = useState('1');
+  const [usedQtyInput, setUsedQtyInput] = useState('0');
   const [minQty, setMinQty] = useState('1');
   const [trackQuantity, setTrackQuantity] = useState(true);
   const [unit, setUnit] = useState('each');
@@ -191,7 +204,13 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
   const [modalContainers, setModalContainers] = useState<ConsumableContainer[]>([]);
   const [isAddingCustomCategory, setIsAddingCustomCategory] = useState(false);
   const [customCategoryInput, setCustomCategoryInput] = useState('');
-  const [lightboxPhoto, setLightboxPhoto] = useState<MaintenancePhoto | null>(null);
+  const [partPhotos, setPartPhotos] = useState<MaintenancePhoto[]>([]);
+  const [isProcessingPartPhoto, setIsProcessingPartPhoto] = useState(false);
+  const [lightboxPhoto, setLightboxPhoto] = useState<{
+    photo: MaintenancePhoto;
+    partId: string;
+    partName: string;
+  } | null>(null);
 
   const modalTotalQty = useMemo(() => {
     return Number(
@@ -285,6 +304,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     setOemPartNumber('');
     setCrossRefsRaw('');
     setQtyOnBoard('1');
+    setNewQtyInput('1');
+    setUsedQtyInput('0');
     setMinQty('1');
     setTrackQuantity(true);
     setUnit('each');
@@ -299,6 +320,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     setManualPage('');
     setIsAddingCustomCategory(false);
     setCustomCategoryInput('');
+    setPartPhotos([]);
     setModalContainers([
       {
         id: `cont-${Date.now()}-1`,
@@ -319,7 +341,10 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     setEquipmentModel(part.equipmentModel || db.vessel.engineMakeModel);
     setOemPartNumber(part.oemPartNumber);
     setCrossRefsRaw(part.crossRefNumbers?.join(', ') || '');
+    const stockCounts = getPartStockCounts(part);
     setQtyOnBoard(String(part.quantityOnBoard));
+    setNewQtyInput(String(stockCounts.newQty));
+    setUsedQtyInput(String(stockCounts.usedQty));
     setMinQty(String(part.minQuantity));
     setTrackQuantity(part.trackQuantity !== false);
     setUnit(part.unit || (part.itemType === 'consumable' ? 'oz' : 'each'));
@@ -334,6 +359,7 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     setManualPage(part.manualPage || '');
     setIsAddingCustomCategory(false);
     setCustomCategoryInput('');
+    setPartPhotos([...(part.photos || [])]);
 
     const existingContainers =
       part.containers && part.containers.length > 0
@@ -418,14 +444,14 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     setEditingContainerData(null);
   };
 
-  const adjustQuantity = (partId: string, delta: number) => {
+  const adjustSplitQuantity = (
+    partId: string,
+    bucket: 'new' | 'used',
+    delta: number
+  ) => {
     onUpdateDb((prev) => ({
       ...prev,
-      parts: prev.parts.map((p) => {
-        if (p.id !== partId) return p;
-        const next = Math.max(0, Number((p.quantityOnBoard + delta).toFixed(2)));
-        return { ...p, quantityOnBoard: next };
-      }),
+      parts: prev.parts.map((p) => (p.id === partId ? adjustPartStock(p, bucket, delta) : p)),
     }));
   };
 
@@ -519,6 +545,92 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     setAddingContainerForPartId(null);
   };
 
+  const processSelectedPartPhotos = async (
+    files: FileList | null,
+    onPhotosReady: (added: MaintenancePhoto[]) => void
+  ) => {
+    if (!files || files.length === 0) return;
+    setIsProcessingPartPhoto(true);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const fileArray = Array.from(files);
+      const results = await Promise.allSettled(
+        fileArray.map(async (file, index): Promise<MaintenancePhoto | null> => {
+          const isImage =
+            file.type.startsWith('image/') ||
+            /\.(jpe?g|png|webp|gif|bmp|heic|heif|avif)$/i.test(file.name);
+          if (!isImage) return null;
+          const compressedDataUrl = await compressImageFile(file, 1024, 0.75);
+          const id = `part-photo-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`;
+          const mediaKey = buildPhotoMediaKey(id, 'image/jpeg');
+          const { mimeType, sizeBytes } = await saveMediaDataUrl(
+            mediaKey,
+            compressedDataUrl,
+            file.name
+          );
+          return {
+            id,
+            dataUrl: '',
+            mediaKey,
+            mimeType,
+            sizeBytes,
+            addedAt: today,
+          };
+        })
+      );
+      const added = results
+        .filter(
+          (r): r is PromiseFulfilledResult<MaintenancePhoto | null> =>
+            r.status === 'fulfilled' && r.value !== null
+        )
+        .map((r) => r.value as MaintenancePhoto);
+      if (added.length > 0) {
+        onPhotosReady(added);
+      }
+    } finally {
+      setIsProcessingPartPhoto(false);
+    }
+  };
+
+  const handleQuickAddPhotosToPart = async (partId: string, files: FileList | null) => {
+    await processSelectedPartPhotos(files, (added) => {
+      onUpdateDb((prev) => ({
+        ...prev,
+        parts: prev.parts.map((p) =>
+          p.id === partId ? { ...p, photos: [...(p.photos || []), ...added] } : p
+        ),
+      }));
+    });
+  };
+
+  const handleDeletePhotoFromPart = (partId: string, photoId: string) => {
+    const targetPart = db.parts.find((p) => p.id === partId);
+    const targetPhoto = targetPart?.photos?.find((p) => p.id === photoId);
+    if (targetPhoto?.mediaKey) {
+      void deleteMediaFile(targetPhoto.mediaKey);
+    }
+    onUpdateDb((prev) => ({
+      ...prev,
+      parts: prev.parts.map((p) =>
+        p.id === partId
+          ? {
+              ...p,
+              photos: (p.photos || []).filter((photo) => photo.id !== photoId),
+            }
+          : p
+      ),
+    }));
+  };
+
+  const handleRemoveDraftPartPhoto = (photoId: string) => {
+    const target = partPhotos.find((p) => p.id === photoId);
+    const isAlreadySaved = editingPart?.photos?.some((p) => p.id === photoId);
+    if (target?.mediaKey && !isAlreadySaved) {
+      void deleteMediaFile(target.mediaKey);
+    }
+    setPartPhotos((prev) => prev.filter((p) => p.id !== photoId));
+  };
+
   const handleUpdatePurchaseDate = (partId: string, newDate: string) => {
     onUpdateDb((prev) => ({
       ...prev,
@@ -534,9 +646,16 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
     if (!name.trim()) return;
 
     const parsedQty = parseFloat(qtyOnBoard);
+    const parsedNewQty = parseFloat(newQtyInput);
+    const parsedUsedQty = parseFloat(usedQtyInput);
     const parsedMin = parseFloat(minQty);
     const parsedContainer = parseFloat(containerSize);
-    const validQty = Math.max(0, isNaN(parsedQty) ? 0 : parsedQty);
+    const safeNewQty = Math.max(0, isNaN(parsedNewQty) ? 0 : parsedNewQty);
+    const safeUsedQty = Math.max(0, isNaN(parsedUsedQty) ? 0 : parsedUsedQty);
+    const validQty =
+      itemType === 'consumable'
+        ? Math.max(0, isNaN(parsedQty) ? 0 : parsedQty)
+        : Number((safeNewQty + safeUsedQty).toFixed(2));
     const specifiedBottleSize =
       itemType === 'consumable'
         ? Math.max(0.1, parsedContainer > 0 ? parsedContainer : 16)
@@ -626,6 +745,15 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
             updatedContainers = undefined;
           }
 
+          if (editingPart.photos) {
+            for (const oldPhoto of editingPart.photos) {
+              const kept = partPhotos.some((p) => p.id === oldPhoto.id);
+              if (!kept && oldPhoto.mediaKey) {
+                void deleteMediaFile(oldPhoto.mediaKey);
+              }
+            }
+          }
+
           return {
             ...p,
             name: name.trim(),
@@ -645,12 +773,15 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
             crossRefNumbers: crossRefArray,
             trackQuantity: trackQuantity,
             quantityOnBoard: newTotalQty,
+            newQuantity: itemType === 'consumable' ? undefined : safeNewQty,
+            usedQuantity: itemType === 'consumable' ? undefined : safeUsedQty,
             minQuantity: Math.max(0, isNaN(parsedMin) ? 1 : parsedMin),
             datePurchased: finalPurchaseDate,
             lastPricePaid: finalLastPrice,
             preferredVendorUrl: vendorUrl.trim() || undefined,
             locationOnBoat: locationOnBoat.trim() || undefined,
             notes: notes.trim() || undefined,
+            photos: partPhotos.length > 0 ? partPhotos : undefined,
             manualId: manualId || undefined,
             manualPage: manualPage.trim() || undefined,
           };
@@ -722,12 +853,15 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
         crossRefNumbers: crossRefArray,
         trackQuantity: trackQuantity,
         quantityOnBoard: initialQty,
+        newQuantity: itemType === 'consumable' ? undefined : safeNewQty,
+        usedQuantity: itemType === 'consumable' ? undefined : safeUsedQty,
         minQuantity: Math.max(0, isNaN(parsedMin) ? 1 : parsedMin),
         datePurchased: finalPurchaseDate,
         lastPricePaid: finalLastPrice,
         preferredVendorUrl: vendorUrl.trim() || undefined,
         locationOnBoat: locationOnBoat.trim() || undefined,
         notes: notes.trim() || undefined,
+        photos: partPhotos.length > 0 ? partPhotos : undefined,
         manualId: manualId || undefined,
         manualPage: manualPage.trim() || undefined,
       };
@@ -749,6 +883,14 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
   };
 
   const handleDeletePart = (id: string) => {
+    const target = db.parts.find((p) => p.id === id);
+    if (target?.photos) {
+      for (const photo of target.photos) {
+        if (photo.mediaKey) {
+          void deleteMediaFile(photo.mediaKey);
+        }
+      }
+    }
     onUpdateDb((prev) => ({
       ...prev,
       parts: prev.parts.filter((p) => p.id !== id),
@@ -847,9 +989,10 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
           reorderEstimatedCost += p.lastPricePaid;
         }
       } else {
-        // Discrete parts
+        // Discrete parts (value new spares rather than used emergency backups)
         if (p.lastPricePaid && p.lastPricePaid > 0) {
-          const count = Math.max(1, p.quantityOnBoard);
+          const { newQty } = getPartStockCounts(p);
+          const count = Math.max(1, newQty);
           partsCost += p.lastPricePaid * count;
           if (p.trackQuantity !== false && p.quantityOnBoard <= p.minQuantity) {
             const needToBuy = Math.max(1, p.minQuantity - p.quantityOnBoard);
@@ -888,7 +1031,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
           cost += p.lastPricePaid || 0;
         }
       } else {
-        cost += (p.lastPricePaid || 0) * Math.max(1, p.quantityOnBoard);
+        const { newQty } = getPartStockCounts(p);
+        cost += (p.lastPricePaid || 0) * Math.max(1, newQty);
       }
     }
     return cost;
@@ -1389,7 +1533,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
             {filteredParts.map((part) => {
               const isConsumable = part.itemType === 'consumable';
               const totals = getConsumableTotals(part);
-              const effectiveQty = isConsumable ? totals.totalRemaining : part.quantityOnBoard;
+              const stockCounts = getPartStockCounts(part);
+              const effectiveQty = isConsumable ? totals.totalRemaining : stockCounts.totalQty;
               const isTracked = part.trackQuantity !== false;
               const isLow = isTracked && effectiveQty <= part.minQuantity;
               const isHighlighted = highlightedPartId === part.id;
@@ -1506,7 +1651,13 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                       {part.photos && part.photos.length > 0 && (
                         <button
                           type="button"
-                          onClick={() => setLightboxPhoto(part.photos![0])}
+                          onClick={() =>
+                            setLightboxPhoto({
+                              photo: part.photos![0],
+                              partId: part.id,
+                              partName: part.name,
+                            })
+                          }
                           className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25 transition cursor-pointer"
                           title="Click to view part photo"
                         >
@@ -1538,8 +1689,30 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                 {/* Sub-row: Summary Badge & Quantity Controls placed below the full-width title */}
                 <div className="flex items-center justify-between gap-3 pt-1">
                   <div className="flex-1 min-w-0">
+                    {!isConsumable && (
+                      <div className="text-[11px] text-slate-400 pl-5 flex items-center gap-1.5 flex-wrap">
+                        <span>
+                          Total:{' '}
+                          <strong
+                            className={`font-mono ${
+                              !isTracked
+                                ? 'text-slate-200'
+                                : isLow
+                                ? 'text-rose-400'
+                                : 'text-emerald-400'
+                            }`}
+                          >
+                            {stockCounts.totalQty} {unitLabel}
+                          </strong>
+                        </span>
+                        <span className="text-slate-600">•</span>
+                        <span>
+                          {isTracked ? `min ${part.minQuantity} ${unitLabel}` : 'Untracked'}
+                        </span>
+                      </div>
+                    )}
                     {isPartExpanded && part.dosageHint && (
-                      <div className="text-xs text-teal-300/90 font-medium flex items-center gap-1.5 pl-5">
+                      <div className="text-xs text-teal-300/90 font-medium flex items-center gap-1.5 pl-5 mt-0.5">
                         <span className="text-teal-400 font-bold">Usage / Dosage:</span>
                         <span>{part.dosageHint}</span>
                       </div>
@@ -1579,40 +1752,72 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                       </button>
                     </div>
                   ) : (
-                    <div className="bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => adjustQuantity(part.id, -stepDelta)}
-                        className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition"
-                        title={`Deduct ${stepDelta} ${unitLabel}`}
-                      >
-                        <Minus className="w-3.5 h-3.5" />
-                      </button>
-
-                      <div className="text-center min-w-[50px]">
-                        <div
-                          className={`text-sm font-extrabold font-mono ${
-                            !isTracked
-                              ? 'text-slate-200'
-                              : isLow
-                              ? 'text-rose-400'
-                              : 'text-emerald-400'
-                          }`}
+                    <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+                      <div className="bg-slate-950 border border-emerald-500/30 rounded-xl px-2 py-1 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => adjustSplitQuantity(part.id, 'new', -stepDelta)}
+                          className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition"
+                          title={`Deduct ${stepDelta} new ${unitLabel}`}
                         >
-                          {part.quantityOnBoard}{' '}
-                          <span className="text-[10px] font-normal">{unitLabel}</span>
+                          <Minus className="w-3 h-3" />
+                        </button>
+
+                        <div className="text-center min-w-[40px]">
+                          <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-400 leading-none mb-0.5">
+                            New
+                          </div>
+                          <div
+                            className={`text-sm font-extrabold font-mono leading-tight ${
+                              !isTracked
+                                ? 'text-slate-200'
+                                : isLow && stockCounts.newQty === 0
+                                ? 'text-rose-400'
+                                : 'text-emerald-400'
+                            }`}
+                          >
+                            {stockCounts.newQty}
+                          </div>
                         </div>
-                        <div className="text-[10px] text-slate-500">
-                          {isTracked ? `min ${part.minQuantity} ${unitLabel}` : 'Untracked'}
-                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => adjustSplitQuantity(part.id, 'new', stepDelta)}
+                          className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition"
+                          title={`Add ${stepDelta} new ${unitLabel}`}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
                       </div>
 
-                      <button
-                        onClick={() => adjustQuantity(part.id, stepDelta)}
-                        className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition"
-                        title={`Add ${stepDelta} ${unitLabel}`}
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="bg-slate-950 border border-amber-500/30 rounded-xl px-2 py-1 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => adjustSplitQuantity(part.id, 'used', -stepDelta)}
+                          className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition"
+                          title={`Deduct ${stepDelta} used ${unitLabel}`}
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+
+                        <div className="text-center min-w-[40px]">
+                          <div className="text-[9px] font-bold uppercase tracking-wider text-amber-400 leading-none mb-0.5">
+                            Used
+                          </div>
+                          <div className="text-sm font-extrabold font-mono leading-tight text-amber-300">
+                            {stockCounts.usedQty}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => adjustSplitQuantity(part.id, 'used', stepDelta)}
+                          className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center transition"
+                          title={`Add ${stepDelta} used ${unitLabel}`}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1870,7 +2075,8 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                 <div className="flex items-center gap-2 bg-rose-950/40 border border-rose-600/40 text-rose-300 text-xs px-3 py-1.5 rounded-lg">
                   <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
                   <span>
-                    Stock below minimum threshold ({part.quantityOnBoard} on board vs{' '}
+                    Stock below minimum threshold ({stockCounts.totalQty} on board:{' '}
+                    {stockCounts.newQty} new, {stockCounts.usedQty} used vs{' '}
                     {part.minQuantity} required) — order spare replacements.
                   </span>
                 </div>
@@ -1972,37 +2178,77 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
               </div>
 
               {/* Part Photos & Reference Images */}
-              {part.photos && part.photos.length > 0 && (
-                <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-2.5 space-y-2">
+              <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
                   <div className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
                     <Camera className="w-3.5 h-3.5 text-emerald-400" />
-                    Part Photos ({part.photos.length})
+                    Part Photos ({part.photos?.length || 0})
                   </div>
+                  <label className="cursor-pointer inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 transition">
+                    <Camera className="w-3 h-3" />
+                    <span>{isProcessingPartPhoto ? 'Saving...' : 'Add Photo'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      disabled={isProcessingPartPhoto}
+                      onChange={(e) => {
+                        void handleQuickAddPhotosToPart(part.id, e.target.files);
+                        e.target.value = '';
+                      }}
+                    />
+                  </label>
+                </div>
+
+                {part.photos && part.photos.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
                     {part.photos.map((photo) => (
-                      <button
+                      <div
                         key={photo.id}
-                        type="button"
-                        onClick={() => setLightboxPhoto(photo)}
-                        className="group relative rounded-lg overflow-hidden border border-slate-700 hover:border-sky-400 transition bg-slate-950 text-left max-w-[180px] cursor-pointer"
-                        title="Click to enlarge photo"
+                        className="group relative rounded-lg overflow-hidden border border-slate-700 hover:border-sky-400 transition bg-slate-950 max-w-[180px]"
                       >
-                        <MediaImage
-                          mediaKey={photo.mediaKey}
-                          fallbackSrc={photo.dataUrl}
-                          alt={photo.caption || part.name}
-                          className="h-24 w-36 object-cover group-hover:scale-105 transition duration-200"
-                        />
-                        {photo.caption && (
-                          <div className="px-2 py-1 text-[10px] text-slate-300 truncate bg-slate-950/90">
-                            {photo.caption}
-                          </div>
-                        )}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLightboxPhoto({
+                              photo,
+                              partId: part.id,
+                              partName: part.name,
+                            })
+                          }
+                          className="block text-left cursor-pointer"
+                          title="Click to enlarge photo"
+                        >
+                          <MediaImage
+                            mediaKey={photo.mediaKey}
+                            fallbackSrc={photo.dataUrl}
+                            alt={photo.caption || part.name}
+                            className="h-24 w-36 object-cover group-hover:scale-105 transition duration-200"
+                          />
+                          {photo.caption && (
+                            <div className="px-2 py-1 text-[10px] text-slate-300 truncate bg-slate-950/90">
+                              {photo.caption}
+                            </div>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePhotoFromPart(part.id, photo.id)}
+                          className="absolute top-1 right-1 bg-slate-950/85 hover:bg-rose-600 text-slate-300 hover:text-white rounded-full p-1 opacity-80 group-hover:opacity-100 transition shadow"
+                          title="Remove photo"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <p className="text-[11px] text-slate-500">
+                    Snap or upload photos of the part label, packaging, or locker location.
+                  </p>
+                )}
+              </div>
 
               {/* Locker Location & Notes */}
               <div className="flex items-center justify-between pt-2 border-t border-slate-800/80 text-xs text-slate-400 gap-2 flex-wrap">
@@ -2508,35 +2754,64 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-2.5">
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">
-                      {trackQuantity ? 'Spares On Board (Count)' : 'Spares On Board (Optional)'}
+                    <label className="block text-xs text-emerald-400 font-semibold mb-1">
+                      New Spares
                     </label>
                     <input
                       type="number"
+                      min="0"
                       step="1"
-                      value={qtyOnBoard}
-                      onChange={(e) => setQtyOnBoard(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white font-mono"
+                      value={newQtyInput}
+                      onChange={(e) => setNewQtyInput(e.target.value)}
+                      className="w-full bg-slate-950 border border-emerald-500/40 rounded-lg px-2.5 py-2 text-sm text-white font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Minimum Required Spares</label>
+                    <label className="block text-xs text-amber-400 font-semibold mb-1">
+                      Used Spares
+                    </label>
                     <input
                       type="number"
+                      min="0"
+                      step="1"
+                      value={usedQtyInput}
+                      onChange={(e) => setUsedQtyInput(e.target.value)}
+                      className="w-full bg-slate-950 border border-amber-500/40 rounded-lg px-2.5 py-2 text-sm text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">
+                      Min Required
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
                       step="1"
                       disabled={!trackQuantity}
                       value={trackQuantity ? minQty : ''}
                       placeholder={trackQuantity ? '1' : 'Untracked'}
                       onChange={(e) => setMinQty(e.target.value)}
-                      className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-sm font-mono ${
+                      className={`w-full bg-slate-950 border rounded-lg px-2.5 py-2 text-sm font-mono ${
                         !trackQuantity
                           ? 'border-slate-800/80 bg-slate-900/50 text-slate-500 cursor-not-allowed'
                           : 'border-slate-700 text-white'
                       }`}
                     />
                   </div>
+                </div>
+                <div className="text-[11px] text-slate-400 flex items-center justify-between bg-slate-950/60 border border-slate-800/80 rounded-lg px-3 py-1.5">
+                  <span>Combined Total On Board:</span>
+                  <strong className="text-white font-mono">
+                    {Number(
+                      (
+                        Math.max(0, parseFloat(newQtyInput) || 0) +
+                        Math.max(0, parseFloat(usedQtyInput) || 0)
+                      ).toFixed(2)
+                    )}{' '}
+                    {unit || 'each'}
+                  </strong>
                 </div>
               </>
             )}
@@ -2597,6 +2872,76 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
                   className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white font-mono"
                 />
               </div>
+            </div>
+
+            {/* Part Photos Upload & Captions */}
+            <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-3 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Part Photos</span>
+                </label>
+                <label className="cursor-pointer inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/30 transition">
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>{isProcessingPartPhoto ? 'Compressing...' : 'Snap / Add Photos'}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    disabled={isProcessingPartPhoto}
+                    onChange={(e) => {
+                      void processSelectedPartPhotos(e.target.files, (added) =>
+                        setPartPhotos((prev) => [...prev, ...added])
+                      );
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+
+              {partPhotos.length === 0 ? (
+                <div className="text-[11px] text-slate-500">
+                  Optional: Attach photos of box labels, OEM part stamps, or shelf placement.
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                  {partPhotos.map((photo) => (
+                    <div
+                      key={photo.id}
+                      className="flex items-center gap-2.5 bg-slate-900 border border-slate-800 rounded-lg p-2"
+                    >
+                      <MediaImage
+                        mediaKey={photo.mediaKey}
+                        fallbackSrc={photo.dataUrl}
+                        alt={photo.caption || 'Part photo'}
+                        className="w-12 h-12 rounded object-cover shrink-0 border border-slate-700"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Caption (e.g., Port settee spare box)..."
+                        value={photo.caption || ''}
+                        onChange={(e) =>
+                          setPartPhotos((prev) =>
+                            prev.map((p) =>
+                              p.id === photo.id ? { ...p, caption: e.target.value } : p
+                            )
+                          )
+                        }
+                        className="flex-1 bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-xs text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveDraftPartPhoto(photo.id)}
+                        className="text-slate-500 hover:text-rose-400 p-1 shrink-0"
+                        title="Remove photo"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div>
@@ -2790,12 +3135,16 @@ export const PartsCatalogView: React.FC<PartsCatalogViewProps> = ({
       {/* Lightbox Modal for Part Photos with Zoom & Download */}
       {lightboxPhoto && (
         <PhotoLightboxModal
-          imageUrl={lightboxPhoto.dataUrl}
-          mediaKey={lightboxPhoto.mediaKey}
-          title={lightboxPhoto.caption || 'Part Reference Photo'}
-          caption={lightboxPhoto.caption}
-          dateAdded={lightboxPhoto.addedAt}
+          imageUrl={lightboxPhoto.photo.dataUrl}
+          mediaKey={lightboxPhoto.photo.mediaKey}
+          title={lightboxPhoto.partName}
+          caption={lightboxPhoto.photo.caption}
+          dateAdded={lightboxPhoto.photo.addedAt}
           onClose={() => setLightboxPhoto(null)}
+          onDelete={() => {
+            handleDeletePhotoFromPart(lightboxPhoto.partId, lightboxPhoto.photo.id);
+            setLightboxPhoto(null);
+          }}
         />
       )}
     </div>
